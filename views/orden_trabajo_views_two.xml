@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="orden_trabajo_form" model="ir.ui.view">
+            <field name="name">orden.trabajo.form</field>
+            <field name="model">project.project</field>
+            <field name="inherit_id" ref="project.edit_project"/>
+            <field name="arch" type="xml">
+                <data>
+
+                    <notebook position="inside">
+
+                        <page string="Cortes">
+
+                            <field name="corte_ids">
+                                <tree string="Lineas" editable="bottom">
+                                    <field name="lote_id"/>
+                                    <field name="product_id"/>
+                                    <field name="product_qty"/>
+                                    <field name="corte1"/>
+                                    <field name="corte2"/>
+                                    <field name="corte3"/>
+                                    <field name="corte4"/>
+                                    <field name="corte5"/>
+                                    <field name="corte6"/>
+                                    <field name="total"/>
+                                    <field name="sobra"/>
+                                </tree>
+                            </field>
+
+                        </page>
+
+                        <page string="Molduras y páneles">
+                            <field name="moldura_panel_ids">
+                                <tree string="Lineas" editable="bottom">
+                                    <field name="product_id"/>
+                                    <field name="cantidad"/>
+                                </tree>
+                            </field>
+                        </page>
+                        
+                        <page string="Tornillería y accesorios">
+                            <field name="tornilleria_accesorio_ids">
+                                <tree string="Lineas" editable="bottom">
+                                    <field name="product_id"/>
+                                    <field name="cantidad"/>
+                                </tree>
+                            </field>
+                        </page>
+                        
+                    </notebook>
+
+                </data>
+                
+            </field>
+        </record>
+
+    </data>
+
+</odoo>
