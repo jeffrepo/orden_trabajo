@@ -5,9 +5,9 @@ import odoo.addons.decimal_precision as dp
 from odoo.exceptions import UserError
 import logging
 
-class OrdenTrabajo(models.Model):
+# class OrdenTrabajo(models.Model):
     # _inherit = 'project.project'
-    _name = 'orden.trabajo'
+    # _name = 'orden.trabajo'
 
     # name = fields.Char("Nombre", required=True, default=lambda self: self.env['ir.sequence'].next_by_code('orden.trabajo.serial'))
     # fecha = fields.Date('Fecha', required=True)

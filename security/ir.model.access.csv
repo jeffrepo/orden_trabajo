@@ -1,5 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_pro_orden_trabajo,access.pro.orden.trabajo,orden_trabajo.model_orden_trabajo,point_of_sale.group_pos_user,1,1,1,1
 access_pro_orden_trabajo_corte,access.pro.orden.trabajo.corte,orden_trabajo.model_orden_trabajo_corte,point_of_sale.group_pos_user,1,1,1,1
 access_pro_orden_trabajo_moldura_panel,access.pro.orden.trabajo.moldura.panel,orden_trabajo.model_orden_trabajo_moldura_panel,point_of_sale.group_pos_user,1,1,1,1
 access_pro_orden_trabajo_tortilleria_accesorio,access.pro.orden.trabajo.tortilleria.accesorio,orden_trabajo.model_orden_trabajo_tornilleria_accesorio,point_of_sale.group_pos_user,1,1,1,1
