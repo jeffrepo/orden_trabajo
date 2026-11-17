@@ -1,5 +1,8 @@
 import base64
 import logging
+from unittest.mock import patch
+
+from lxml import etree, html as html_parser
 
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
@@ -207,10 +210,16 @@ class TestWorkOrder(TransactionCase):
         html, _ = report._render_qweb_html('orden_trabajo.action_report_orden_trabajo', self.order.ids)
         for text in ('ORDEN DE PRODUCCIÓN', 'TORNILLERÍA Y ACCESORIOS', 'MOLDURAS', '32.50', '35.00', 'Observación de prueba'):
             self.assertIn(text, html.decode())
-        # Inline report CSS makes the PDF independent of external asset requests.
-        pdf, kind = report.with_context(force_report_rendering=True)._render_qweb_pdf(
-            'orden_trabajo.action_report_orden_trabajo', self.order.ids,
-        )
+        # This test runs with --no-http. Keep the rendered report and its inline
+        # CSS, but remove web.layout's external assets before invoking wkhtmltopdf.
+        document = html_parser.fromstring(html)
+        for asset in document.xpath('//link | //script'):
+            asset.getparent().remove(asset)
+        standalone_html = etree.tostring(document, method='html')
+        with patch.object(type(report), '_render_qweb_html', return_value=(standalone_html, 'html')):
+            pdf, kind = report.with_context(force_report_rendering=True)._render_qweb_pdf(
+                'orden_trabajo.action_report_orden_trabajo', self.order.ids,
+            )
         self.assertEqual(kind, 'pdf')
         self.assertTrue(pdf.startswith(b'%PDF'))
         logging.getLogger(__name__).info('OT_REPORT_PDF_BASE64=%s', base64.b64encode(pdf).decode())
