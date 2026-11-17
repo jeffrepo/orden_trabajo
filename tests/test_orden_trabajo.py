@@ -71,7 +71,9 @@ class TestOrdenTrabajo(TransactionCase):
         line = self.env['orden.trabajo.corte'].create(self._values('orden.trabajo.corte'))
         self.lot.largo = 30
         self.assertEqual(line.sobra, 29)
-        other_product = self.product.copy({'name': 'Otro perfil'})
+        other_product = self.env['product.product'].create({
+            'name': 'Otro perfil', 'is_storable': True, 'tracking': 'lot',
+        })
         other_lot = self.env['stock.lot'].create({
             'name': 'OT-002', 'product_id': other_product.id,
             'company_id': self.env.company.id, 'largo': 10,
