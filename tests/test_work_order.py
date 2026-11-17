@@ -210,13 +210,23 @@ class TestWorkOrder(TransactionCase):
         html, _ = report._render_qweb_html('orden_trabajo.action_report_orden_trabajo', self.order.ids)
         for text in ('ORDEN DE PRODUCCIÓN', 'TORNILLERÍA Y ACCESORIOS', 'MOLDURAS', '32.50', '35.00', 'Observación de prueba'):
             self.assertIn(text, html.decode())
-        # This test runs with --no-http. Keep the rendered report and its inline
-        # CSS, but remove web.layout's external assets before invoking wkhtmltopdf.
-        document = html_parser.fromstring(html)
-        for asset in document.xpath('//link | //script'):
-            asset.getparent().remove(asset)
-        standalone_html = etree.tostring(document, method='html')
-        with patch.object(type(report), '_render_qweb_html', return_value=(standalone_html, 'html')):
+        # Odoo rebuilds minimal_layout after rendering the report. Strip its
+        # external assets at that final boundary because this suite uses --no-http.
+        prepare_html = type(report)._prepare_html
+
+        def offline_html(value):
+            if not value:
+                return value
+            document = html_parser.fromstring(value)
+            for asset in document.xpath('//link | //script'):
+                asset.getparent().remove(asset)
+            return etree.tostring(document, method='html', encoding='unicode')
+
+        def prepare_offline(report_self, *args, **kwargs):
+            bodies, ids, header, footer, paper = prepare_html(report_self, *args, **kwargs)
+            return [offline_html(body) for body in bodies], ids, offline_html(header), offline_html(footer), paper
+
+        with patch.object(type(report), '_prepare_html', prepare_offline):
             pdf, kind = report.with_context(force_report_rendering=True)._render_qweb_pdf(
                 'orden_trabajo.action_report_orden_trabajo', self.order.ids,
             )
