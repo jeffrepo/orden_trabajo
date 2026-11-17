@@ -67,10 +67,11 @@ jobs:
           docker run --rm -i --network host \
             -v orden_trabajo_data:/var/lib/odoo \
             -e HOST=127.0.0.1 -e PASSWORD=odoo \
+            -v "$GITHUB_WORKSPACE/addons/orden_trabajo:/migration:ro" \
             -v "$GITHUB_WORKSPACE/previous-addons:/mnt/extra-addons:ro" \
             odoo:19.0 odoo shell -d orden_trabajo_upgrade --no-http \
             < "$GITHUB_WORKSPACE/addons/orden_trabajo/.github/scripts/seed_upgrade.py"
-      - name: Migrate existing project data to standalone order support
+      - name: Replace the previous adaptation with standalone orders
         run: |
           docker run --rm --network host \
             -v orden_trabajo_data:/var/lib/odoo \

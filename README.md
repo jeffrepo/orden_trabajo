@@ -10,7 +10,7 @@ Fabricación. La vista `orden_trabajo.orden_trabajo_form` vuelve a pertenecer al
 modelo independiente `orden.trabajo`. La impresión está en **Imprimir > Orden
 de Trabajo**.
 
-Dependencias: `mrp`, `sale_stock` y `project`. Para confirmar y cancelar se
+Dependencias: `mrp` y `sale_stock`. No depende de Proyectos. Para confirmar y cancelar se
 necesitan también permisos de Inventario y de escritura sobre la venta vinculada.
 Los permisos se comprueban con el usuario actual, sin sudo en las operaciones.
 
@@ -74,16 +74,15 @@ por sí solo una base completa de Odoo 10. Se conservan modelos/campos e IDs XML
 originales para facilitar la migración de sus registros. El cambio del modelo
 estándar `stock.production.lot` a `stock.lot` corresponde a la migración de la base.
 
-La adaptación anterior a Proyectos se conserva para no perder líneas que ya se
-hubieran registrado: sus pestañas usan ahora `project_orden_trabajo_form`. Un
-script renombra la vista anterior antes de restaurar el formulario independiente;
-recalcula compañías, totales y sobrantes sin reasignar líneas de proyectos a
-órdenes arbitrarias.
+Se elimina la adaptación a Proyectos que no pertenece al ZIP original. Si se
+actualiza desde la primera versión 19, se retiran sus vistas y permisos. Si esa
+versión contiene líneas de proyectos, la actualización se detiene sin borrarlas:
+esos datos necesitan resolverse antes de instalar el módulo independiente.
 
 ## Pruebas
 
 GitHub Actions instala y actualiza con `odoo:19.0` y PostgreSQL 16. La suite incluye
-las pruebas de proyectos existentes y pruebas de consumo/producción por lotes,
+pruebas de consumo/producción por lotes,
 ventas, cancelación/reconfirmación, rollback por faltantes, bloqueo por facturas,
 permisos y formulario/menú/reporte PDF. Ejecutar localmente en una base de pruebas:
 

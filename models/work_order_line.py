@@ -1,5 +1,5 @@
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import UserError
 
 
 class WorkOrderLineMixin(models.AbstractModel):
@@ -8,26 +8,11 @@ class WorkOrderLineMixin(models.AbstractModel):
 
     orden_id = fields.Many2one(
         'orden.trabajo', string='Orden de trabajo', ondelete='cascade',
-        index=True, check_company=True,
-    )
-    project_id = fields.Many2one(
-        'project.project', string='Proyecto', ondelete='cascade',
-        index=True, check_company=True,
+        required=True, index=True, check_company=True,
     )
     company_id = fields.Many2one(
-        'res.company', compute='_compute_company_id', store=True, index=True,
+        related='orden_id.company_id', store=True, index=True,
     )
-
-    @api.depends('orden_id.company_id', 'project_id.company_id')
-    def _compute_company_id(self):
-        for line in self:
-            line.company_id = line.orden_id.company_id or line.project_id.company_id
-
-    @api.constrains('orden_id', 'project_id')
-    def _check_owner(self):
-        for line in self:
-            if bool(line.orden_id) == bool(line.project_id):
-                raise ValidationError(_('La línea debe pertenecer a una orden o a un proyecto.'))
 
     def _check_editable_order(self):
         orders = self.orden_id

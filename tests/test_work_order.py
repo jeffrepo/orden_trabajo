@@ -188,22 +188,23 @@ class TestWorkOrder(TransactionCase):
             with self.assertRaises(UserError):
                 operation()
 
-    def test_manufacturing_permissions_and_project_separation(self):
+    def test_manufacturing_permissions(self):
         manager = new_test_user(self.env, login='ot_mrp', groups='mrp.group_mrp_manager,sales_team.group_sale_manager')
         order = self.order.with_user(manager)
         order.confirmar()
         order.cancelar()
-        project_user = new_test_user(self.env, login='ot_project_only', groups='project.group_project_user')
+        other_user = new_test_user(self.env, login='ot_other_user', groups='base.group_user')
         with self.assertRaises(AccessError):
-            self.order.with_user(project_user).read(['name'])
+            self.order.with_user(other_user).read(['name'])
         with self.assertRaises(AccessError):
-            self.order.corte_ids.with_user(project_user).read(['product_qty'])
+            self.order.corte_ids.with_user(other_user).read(['product_qty'])
 
     def test_menu_form_and_report(self):
         menu = self.env.ref('orden_trabajo.orden_trabajo_orden_trabajo_menu')
         self.assertEqual(menu.parent_id, self.env.ref('mrp.menu_mrp_manufacturing'))
         self.assertEqual(self.env.ref('orden_trabajo.orden_trabajo_form').model, 'orden.trabajo')
-        self.assertEqual(self.env.ref('orden_trabajo.project_orden_trabajo_form').model, 'project.project')
+        self.assertFalse(self.env.ref('orden_trabajo.project_orden_trabajo_form', raise_if_not_found=False))
+        self.assertNotIn('project_id', self.env['orden.trabajo.corte']._fields)
         with Form(self.order, view='orden_trabajo.orden_trabajo_form') as form:
             form.observaciones = 'Observación de prueba'
         report = self.env['ir.actions.report']
@@ -233,3 +234,20 @@ class TestWorkOrder(TransactionCase):
         self.assertEqual(kind, 'pdf')
         self.assertTrue(pdf.startswith(b'%PDF'))
         logging.getLogger(__name__).info('OT_REPORT_PDF_BASE64=%s', base64.b64encode(pdf).decode())
+
+    def test_company_isolation(self):
+        company = self.env['res.company'].create({'name': 'Otra compañía OT'})
+        warehouse = self.env['stock.warehouse'].search([('company_id', '=', company.id)], limit=1)
+        sale = self.env['sale.order'].with_company(company).create({
+            'partner_id': self.partner.id, 'warehouse_id': warehouse.id,
+        })
+        order = self.env['orden.trabajo'].with_company(company).create({
+            'sale_id': sale.id, 'stock_picking_type_id': warehouse.int_type_id.id,
+        })
+        user = new_test_user(self.env, login='ot_company_user', groups='mrp.group_mrp_manager,sales_team.group_sale_manager')
+        with self.assertRaises(AccessError):
+            order.with_user(user).with_context(allowed_company_ids=self.env.company.ids).read(['name'])
+        with self.assertRaises(UserError), self.cr.savepoint():
+            self.env['orden.trabajo.corte'].with_context(
+                allowed_company_ids=(self.env.company | company).ids,
+            ).create({'orden_id': order.id, 'lote_id': self.lot.id, 'product_qty': 1, 'corte1': 1})
