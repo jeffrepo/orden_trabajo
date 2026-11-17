@@ -24,17 +24,18 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U odoo"
+          --health-cmd "pg_isready -U odoo -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: addons/orden_trabajo
       - name: Install and test on Odoo 19
         run: |
           docker run --rm --network host \
+            -v orden_trabajo_data:/var/lib/odoo \
             -e HOST=127.0.0.1 -e PASSWORD=odoo \
             -v "$GITHUB_WORKSPACE/addons:/mnt/extra-addons:ro" \
             odoo:19.0 odoo -d orden_trabajo_test \
@@ -44,6 +45,7 @@ jobs:
       - name: Update and test on Odoo 19
         run: |
           docker run --rm --network host \
+            -v orden_trabajo_data:/var/lib/odoo \
             -e HOST=127.0.0.1 -e PASSWORD=odoo \
             -v "$GITHUB_WORKSPACE/addons:/mnt/extra-addons:ro" \
             odoo:19.0 odoo -d orden_trabajo_test \

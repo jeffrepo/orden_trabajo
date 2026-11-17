@@ -3,6 +3,7 @@
     'summary': 'Cortes, molduras y accesorios por proyecto',
     'version': '19.0.1.0.0',
     'category': 'Services/Project',
+    'author': '',
     'license': 'LGPL-3',
     'depends': ['project', 'stock', 'sale'],
     'data': [

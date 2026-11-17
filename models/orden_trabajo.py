@@ -22,14 +22,14 @@ class OrdenTrabajoCortes(models.Model):
         related='lote_id.product_id', string='Producto', store=True,
     )
     product_qty = fields.Float(
-        string='Cantidad', digits='Product Unit', required=True,
+        string='Cantidad', digits='Product Unit', required=True, default=0.0,
     )
-    corte1 = fields.Float(string='Corte 1', required=True)
-    corte2 = fields.Float(string='Corte 2', required=True)
-    corte3 = fields.Float(string='Corte 3', required=True)
-    corte4 = fields.Float(string='Corte 4', required=True)
-    corte5 = fields.Float(string='Corte 5', required=True)
-    corte6 = fields.Float(string='Corte 6', required=True)
+    corte1 = fields.Float(string='Corte 1', required=True, default=0.0)
+    corte2 = fields.Float(string='Corte 2', required=True, default=0.0)
+    corte3 = fields.Float(string='Corte 3', required=True, default=0.0)
+    corte4 = fields.Float(string='Corte 4', required=True, default=0.0)
+    corte5 = fields.Float(string='Corte 5', required=True, default=0.0)
+    corte6 = fields.Float(string='Corte 6', required=True, default=0.0)
     total = fields.Float(string='Total', compute='_compute_total', store=True)
     sobra = fields.Float(string='Sobra', compute='_compute_sobra', store=True)
 
