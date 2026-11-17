@@ -1,0 +1,52 @@
+name: Odoo 19
+
+on:
+  push:
+    branches: ['19.0', 'codex/**']
+  pull_request:
+    branches: ['19.0']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U odoo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: addons/orden_trabajo
+      - name: Install and test on Odoo 19
+        run: |
+          docker run --rm --network host \
+            -e HOST=127.0.0.1 -e PASSWORD=odoo \
+            -v "$GITHUB_WORKSPACE/addons:/mnt/extra-addons:ro" \
+            odoo:19.0 odoo -d orden_trabajo_test \
+            --init=orden_trabajo --without-demo \
+            --test-enable --test-tags=/orden_trabajo \
+            --stop-after-init --no-http --workers=0
+      - name: Update and test on Odoo 19
+        run: |
+          docker run --rm --network host \
+            -e HOST=127.0.0.1 -e PASSWORD=odoo \
+            -v "$GITHUB_WORKSPACE/addons:/mnt/extra-addons:ro" \
+            odoo:19.0 odoo -d orden_trabajo_test \
+            --update=orden_trabajo --without-demo \
+            --test-enable --test-tags=/orden_trabajo \
+            --stop-after-init --no-http --workers=0
