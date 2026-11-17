@@ -1,5 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_pro_orden_trabajo_corte,access.pro.orden.trabajo.corte,model_orden_trabajo_corte,project.group_project_user,1,1,1,1
-access_pro_orden_trabajo_moldura_panel,access.pro.orden.trabajo.moldura.panel,model_orden_trabajo_moldura_panel,project.group_project_user,1,1,1,1
-access_pro_orden_trabajo_tortilleria_accesorio,access.pro.orden.trabajo.tortilleria.accesorio,model_orden_trabajo_tornilleria_accesorio,project.group_project_user,1,1,1,1
-access_stock_lot_project_user,stock.lot.project.user,stock.model_stock_lot,project.group_project_user,1,0,0,0
+orden_trabajo,orden_trabajo,model_orden_trabajo,mrp.group_mrp_manager,1,1,1,1
+orden_trabajo_corte,orden_trabajo_corte,model_orden_trabajo_corte,mrp.group_mrp_manager,1,1,1,1
+orden_trabajo_moldura_panel,orden_trabajo_moldura_panel,model_orden_trabajo_moldura_panel,mrp.group_mrp_manager,1,1,1,1
+orden_trabajo_tornilleria_accesorio,orden_trabajo_tornilleria_accesorio,model_orden_trabajo_tornilleria_accesorio,mrp.group_mrp_manager,1,1,1,1

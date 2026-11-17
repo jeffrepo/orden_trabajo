@@ -3,17 +3,11 @@ from odoo import api, fields, models
 
 class OrdenTrabajoCortes(models.Model):
     _name = 'orden.trabajo.corte'
+    _inherit = 'orden.trabajo.line.mixin'
     _description = 'Corte de orden de trabajo'
     _rec_name = 'lote_id'
     _check_company_auto = True
 
-    project_id = fields.Many2one(
-        'project.project', string='Proyecto', required=True,
-        ondelete='cascade', index=True, check_company=True,
-    )
-    company_id = fields.Many2one(
-        related='project_id.company_id', store=True, index=True,
-    )
     lote_id = fields.Many2one(
         'stock.lot', string='Lote', required=True,
         ondelete='restrict', check_company=True,
@@ -49,17 +43,11 @@ class OrdenTrabajoCortes(models.Model):
 
 class OrdenTrabajoMolduraPanel(models.Model):
     _name = 'orden.trabajo.moldura_panel'
+    _inherit = 'orden.trabajo.line.mixin'
     _description = 'Moldura o panel de orden de trabajo'
     _rec_name = 'product_id'
     _check_company_auto = True
 
-    project_id = fields.Many2one(
-        'project.project', string='Proyecto', required=True,
-        ondelete='cascade', index=True, check_company=True,
-    )
-    company_id = fields.Many2one(
-        related='project_id.company_id', store=True, index=True,
-    )
     product_id = fields.Many2one(
         'product.product', string='Producto', required=True, check_company=True,
     )
@@ -70,17 +58,11 @@ class OrdenTrabajoMolduraPanel(models.Model):
 
 class OrdenTrabajoTornilleriaAccesorio(models.Model):
     _name = 'orden.trabajo.tornilleria_accesorio'
+    _inherit = 'orden.trabajo.line.mixin'
     _description = 'Tornillería o accesorio de orden de trabajo'
     _rec_name = 'product_id'
     _check_company_auto = True
 
-    project_id = fields.Many2one(
-        'project.project', string='Proyecto', required=True,
-        ondelete='cascade', index=True, check_company=True,
-    )
-    company_id = fields.Many2one(
-        related='project_id.company_id', store=True, index=True,
-    )
     product_id = fields.Many2one(
         'product.product', string='Producto', required=True, check_company=True,
     )

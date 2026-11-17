@@ -1,0 +1,130 @@
+<?xml version='1.0' encoding='utf-8'?>
+<odoo>
+    <record id="paperformat_orden_trabajo" model="report.paperformat">
+        <field name="name">Orden de producción A4</field>
+        <field name="format">A4</field>
+        <field name="orientation">Portrait</field>
+        <field name="margin_top">10</field>
+        <field name="margin_bottom">10</field>
+        <field name="margin_left">10</field>
+        <field name="margin_right">10</field>
+        <field name="header_line" eval="False"/>
+        <field name="dpi">90</field>
+    </record>
+    <record id="action_report_orden_trabajo" model="ir.actions.report">
+        <field name="name">Orden de Trabajo</field>
+        <field name="model">orden.trabajo</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">orden_trabajo.report_orden_trabajo</field>
+        <field name="report_file">orden_trabajo.report_orden_trabajo</field>
+        <field name="binding_model_id" ref="model_orden_trabajo"/>
+        <field name="binding_type">report</field>
+        <field name="paperformat_id" ref="paperformat_orden_trabajo"/>
+        <field name="print_report_name">'Orden de Trabajo - %s' % object.name</field>
+    </record>
+    <template id="report_orden_trabajo">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-call="web.basic_layout">
+                    <div class="page ot-report">
+                        <style>
+                            .ot-report { font-family: Arial, sans-serif; color: #111; font-size: 12px; }
+                            .ot-report table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+                            .ot-report th, .ot-report td { padding: 6px; vertical-align: middle; }
+                            .ot-report .grid th, .ot-report .grid td { border: 1px solid #888; text-align: center; }
+                            .ot-report .grid th { font-weight: bold; }
+                            .ot-report .grid thead { display: table-header-group; }
+                            .ot-report tr { page-break-inside: avoid; }
+                            .ot-report .company-header td { vertical-align: top; border-left: 1px solid #888; width: 50%; }
+                            .ot-report .company-header { border-top: 4px solid #302f7b; }
+                            .ot-report .details td:first-child { width: 22%; }
+                            .ot-report .details td:last-child { border-bottom: 1px solid #888; }
+                            .ot-report .section { margin-top: 28px; }
+                            .ot-report .signatures { page-break-inside: avoid; }
+                        </style>
+                        <div style="height: 60px; margin-bottom: 12px;">
+                            <img t-if="o.company_id.logo" t-att-src="image_data_uri(o.company_id.logo)" style="max-height: 55px; max-width: 250px;" alt="Logo"/>
+                        </div>
+                        <table class="company-header">
+                            <tr>
+                                <td>
+                                    <div style="font-size: 21px; margin: 10px 0;" t-field="o.company_id.name"/>
+                                    <div t-field="o.company_id.partner_id" t-options="{'widget': 'contact', 'fields': ['address'], 'no_marker': True}"/>
+                                    <div t-if="o.company_id.phone">PBX <span t-field="o.company_id.phone"/></div>
+                                    <div t-if="o.company_id.vat">NIT <span t-field="o.company_id.vat"/></div>
+                                </td>
+                                <td style="padding-top: 26px;">
+                                    <div style="font-size: 16px;">ORDEN DE PRODUCCIÓN</div>
+                                    <strong style="font-size: 15px;" t-field="o.name"/>
+                                    <div style="margin-top: 8px; font-weight: bold;" t-field="o.sale_id.name"/>
+                                </td>
+                            </tr>
+                        </table>
+                        <table class="details">
+                            <tr><td>PROYECTO:</td><td><span t-esc="o._report_project_name()"/></td></tr>
+                            <tr><td>CLIENTE:</td><td><span t-field="o.sale_id.partner_id.name"/></td></tr>
+                            <tr><td>FECHA INGRESO:</td><td><span t-field="o.fecha" t-options="{'widget': 'date', 'format': 'dd/MM/yyyy'}"/></td></tr>
+                            <tr><td>FECHA PRODUCCIÓN:</td><td><span t-field="o.fecha_produccion" t-options="{'widget': 'date', 'format': 'dd/MM/yyyy'}"/></td></tr>
+                        </table>
+                        <table class="grid">
+                            <thead>
+                                <tr>
+                                    <th>PANEL #</th><th>LARGO TOTAL DE PANEL</th>
+                                    <th>CORTE #1</th><th>CORTE #2</th><th>CORTE #3</th>
+                                    <th>CORTE #4</th><th>CORTE #5</th><th>CORTE #6</th>
+                                    <th>TOTAL</th><th>SOBRA</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="o.corte_ids" t-as="line">
+                                    <td><span t-field="line.product_qty"/></td><td><span t-field="line.lote_id.largo"/></td>
+                                    <td><span t-field="line.corte1"/></td><td><span t-field="line.corte2"/></td><td><span t-field="line.corte3"/></td>
+                                    <td><span t-field="line.corte4"/></td><td><span t-field="line.corte5"/></td><td><span t-field="line.corte6"/></td>
+                                    <td><span t-field="line.total"/></td><td><span t-field="line.sobra"/></td>
+                                </tr>
+                                <tr style="font-weight: bold;">
+                                    <td>TOTALES</td>
+                                    <td><span t-esc="sum(line.lote_id.largo for line in o.corte_ids)" t-options="{'widget': 'float', 'precision': 2}"/></td>
+                                    <td colspan="6"/>
+                                    <td><span t-esc="sum(line.total * line.product_qty for line in o.corte_ids)" t-options="{'widget': 'float', 'precision': 2}"/></td>
+                                    <td><span t-esc="sum(line.sobra * line.product_qty for line in o.corte_ids)" t-options="{'widget': 'float', 'precision': 2}"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <table class="grid">
+                            <thead><tr><th>MEDIDA</th><th>CANTIDAD</th></tr></thead>
+                            <tbody>
+                                <tr t-foreach="o.obtener_cortes(o.corte_ids)" t-as="cut">
+                                    <td><span t-esc="cut['medida']"/></td><td><span t-esc="cut['cantidad']"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <table class="grid section">
+                            <thead>
+                                <tr><th colspan="3">TORNILLERÍA Y ACCESORIOS</th></tr>
+                                <tr><th style="width: 16%;">NO.</th><th>DESCRIPCIÓN</th><th style="width: 25%;">CANTIDAD</th></tr>
+                            </thead>
+                            <tbody><tr t-foreach="o.tornilleria_accesorio_ids" t-as="line">
+                                <td><span t-esc="line_index + 1"/></td><td><span t-field="line.product_id.display_name"/></td><td><span t-field="line.cantidad"/></td>
+                            </tr></tbody>
+                        </table>
+                        <table class="grid">
+                            <thead>
+                                <tr><th colspan="3">MOLDURAS</th></tr>
+                                <tr><th style="width: 16%;">NO.</th><th>DESCRIPCIÓN</th><th style="width: 25%;">CANTIDAD</th></tr>
+                            </thead>
+                            <tbody><tr t-foreach="o.moldura_panel_ids" t-as="line">
+                                <td><span t-esc="line_index + 1"/></td><td><span t-field="line.product_id.display_name"/></td><td><span t-field="line.cantidad"/></td>
+                            </tr></tbody>
+                        </table>
+                        <div style="margin: 20px 0;">OBSERVACIONES: <span t-field="o.observaciones" style="white-space: pre-wrap;"/></div>
+                        <table class="grid signatures">
+                            <tr><td style="width: 50%;">Revisado por</td><td>Autorizado por</td></tr>
+                            <tr style="height: 38px;"><td><span t-field="o.revisado_por.name"/></td><td><span t-field="o.autorizado_por.name"/></td></tr>
+                        </table>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

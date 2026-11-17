@@ -52,3 +52,36 @@ jobs:
             --update=orden_trabajo --without-demo \
             --test-enable --test-tags=/orden_trabajo \
             --stop-after-init --no-http --workers=0
+      - uses: actions/checkout@v5
+        with:
+          ref: 94c11ab77e7db1fc2031b1da3e364959b52b9370
+          path: previous-addons/orden_trabajo
+      - name: Install the previous project adaptation
+        run: |
+          docker run --rm --network host \
+            -v orden_trabajo_data:/var/lib/odoo \
+            -e HOST=127.0.0.1 -e PASSWORD=odoo \
+            -v "$GITHUB_WORKSPACE/previous-addons:/mnt/extra-addons:ro" \
+            odoo:19.0 odoo -d orden_trabajo_upgrade \
+            --init=orden_trabajo --without-demo --stop-after-init --no-http
+          docker run --rm -i --network host \
+            -v orden_trabajo_data:/var/lib/odoo \
+            -e HOST=127.0.0.1 -e PASSWORD=odoo \
+            -v "$GITHUB_WORKSPACE/addons/orden_trabajo:/migration:ro" \
+            -v "$GITHUB_WORKSPACE/previous-addons:/mnt/extra-addons:ro" \
+            odoo:19.0 odoo shell -d orden_trabajo_upgrade --no-http \
+            < "$GITHUB_WORKSPACE/addons/orden_trabajo/.github/scripts/seed_upgrade.py"
+      - name: Replace the previous adaptation with standalone orders
+        run: |
+          docker run --rm --network host \
+            -v orden_trabajo_data:/var/lib/odoo \
+            -e HOST=127.0.0.1 -e PASSWORD=odoo \
+            -v "$GITHUB_WORKSPACE/addons:/mnt/extra-addons:ro" \
+            odoo:19.0 odoo -d orden_trabajo_upgrade \
+            --update=orden_trabajo --without-demo --stop-after-init --no-http
+          docker run --rm -i --network host \
+            -v orden_trabajo_data:/var/lib/odoo \
+            -e HOST=127.0.0.1 -e PASSWORD=odoo \
+            -v "$GITHUB_WORKSPACE/addons:/mnt/extra-addons:ro" \
+            odoo:19.0 odoo shell -d orden_trabajo_upgrade --no-http \
+            < "$GITHUB_WORKSPACE/addons/orden_trabajo/.github/scripts/check_upgrade.py"
