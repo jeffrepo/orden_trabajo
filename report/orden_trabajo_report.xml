@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <odoo>
     <record id="paperformat_orden_trabajo" model="report.paperformat">
         <field name="name">Orden de producción A4</field>
@@ -61,8 +61,8 @@
                             </tr>
                         </table>
                         <table class="details">
-                            <tr><td>PROYECTO:</td><td t-esc="o._report_project_name()"/></tr>
-                            <tr><td>CLIENTE:</td><td t-field="o.sale_id.partner_id.name"/></tr>
+                            <tr><td>PROYECTO:</td><td><span t-esc="o._report_project_name()"/></td></tr>
+                            <tr><td>CLIENTE:</td><td><span t-field="o.sale_id.partner_id.name"/></td></tr>
                             <tr><td>FECHA INGRESO:</td><td><span t-field="o.fecha" t-options="{'widget': 'date', 'format': 'dd/MM/yyyy'}"/></td></tr>
                             <tr><td>FECHA PRODUCCIÓN:</td><td><span t-field="o.fecha_produccion" t-options="{'widget': 'date', 'format': 'dd/MM/yyyy'}"/></td></tr>
                         </table>
@@ -77,17 +77,17 @@
                             </thead>
                             <tbody>
                                 <tr t-foreach="o.corte_ids" t-as="line">
-                                    <td t-field="line.product_qty"/><td t-field="line.lote_id.largo"/>
-                                    <td t-field="line.corte1"/><td t-field="line.corte2"/><td t-field="line.corte3"/>
-                                    <td t-field="line.corte4"/><td t-field="line.corte5"/><td t-field="line.corte6"/>
-                                    <td t-field="line.total"/><td t-field="line.sobra"/>
+                                    <td><span t-field="line.product_qty"/></td><td><span t-field="line.lote_id.largo"/></td>
+                                    <td><span t-field="line.corte1"/></td><td><span t-field="line.corte2"/></td><td><span t-field="line.corte3"/></td>
+                                    <td><span t-field="line.corte4"/></td><td><span t-field="line.corte5"/></td><td><span t-field="line.corte6"/></td>
+                                    <td><span t-field="line.total"/></td><td><span t-field="line.sobra"/></td>
                                 </tr>
                                 <tr style="font-weight: bold;">
                                     <td>TOTALES</td>
-                                    <td t-esc="sum(o.corte_ids.mapped('lote_id.largo'))" t-options="{'widget': 'float', 'precision': 2}"/>
+                                    <td><span t-esc="sum(line.lote_id.largo for line in o.corte_ids)" t-options="{'widget': 'float', 'precision': 2}"/></td>
                                     <td colspan="6"/>
-                                    <td t-esc="sum(line.total * line.product_qty for line in o.corte_ids)" t-options="{'widget': 'float', 'precision': 2}"/>
-                                    <td t-esc="sum(line.sobra * line.product_qty for line in o.corte_ids)" t-options="{'widget': 'float', 'precision': 2}"/>
+                                    <td><span t-esc="sum(line.total * line.product_qty for line in o.corte_ids)" t-options="{'widget': 'float', 'precision': 2}"/></td>
+                                    <td><span t-esc="sum(line.sobra * line.product_qty for line in o.corte_ids)" t-options="{'widget': 'float', 'precision': 2}"/></td>
                                 </tr>
                             </tbody>
                         </table>
@@ -95,7 +95,7 @@
                             <thead><tr><th>MEDIDA</th><th>CANTIDAD</th></tr></thead>
                             <tbody>
                                 <tr t-foreach="o.obtener_cortes(o.corte_ids)" t-as="cut">
-                                    <td t-esc="cut['medida']"/><td t-esc="cut['cantidad']"/>
+                                    <td><span t-esc="cut['medida']"/></td><td><span t-esc="cut['cantidad']"/></td>
                                 </tr>
                             </tbody>
                         </table>
@@ -105,7 +105,7 @@
                                 <tr><th style="width: 16%;">NO.</th><th>DESCRIPCIÓN</th><th style="width: 25%;">CANTIDAD</th></tr>
                             </thead>
                             <tbody><tr t-foreach="o.tornilleria_accesorio_ids" t-as="line">
-                                <td t-esc="line_index + 1"/><td t-field="line.product_id.display_name"/><td t-field="line.cantidad"/>
+                                <td><span t-esc="line_index + 1"/></td><td><span t-field="line.product_id.display_name"/></td><td><span t-field="line.cantidad"/></td>
                             </tr></tbody>
                         </table>
                         <table class="grid">
@@ -114,13 +114,13 @@
                                 <tr><th style="width: 16%;">NO.</th><th>DESCRIPCIÓN</th><th style="width: 25%;">CANTIDAD</th></tr>
                             </thead>
                             <tbody><tr t-foreach="o.moldura_panel_ids" t-as="line">
-                                <td t-esc="line_index + 1"/><td t-field="line.product_id.display_name"/><td t-field="line.cantidad"/>
+                                <td><span t-esc="line_index + 1"/></td><td><span t-field="line.product_id.display_name"/></td><td><span t-field="line.cantidad"/></td>
                             </tr></tbody>
                         </table>
                         <div style="margin: 20px 0;">OBSERVACIONES: <span t-field="o.observaciones" style="white-space: pre-wrap;"/></div>
                         <table class="grid signatures">
                             <tr><td style="width: 50%;">Revisado por</td><td>Autorizado por</td></tr>
-                            <tr style="height: 38px;"><td t-field="o.revisado_por.name"/><td t-field="o.autorizado_por.name"/></tr>
+                            <tr style="height: 38px;"><td><span t-field="o.revisado_por.name"/></td><td><span t-field="o.autorizado_por.name"/></td></tr>
                         </table>
                     </div>
                 </t>

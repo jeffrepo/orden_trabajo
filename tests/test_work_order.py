@@ -143,6 +143,37 @@ class TestWorkOrder(TransactionCase):
         self.assertEqual(len(self.order.picking_ids), 2)
         self.assertTrue(invoice.exists())
 
+    def test_delivered_products_block_cancellation(self):
+        self.sale.action_confirm()
+        self.order.confirmar()
+        line = self.order.sale_line_ids.filtered(lambda line: line.product_id == self.panel)
+        moves = line.move_ids.filtered(lambda move: move.state not in ('done', 'cancel'))
+        moves._action_assign()
+        self.assertTrue(moves)
+        self.assertEqual(sum(moves.mapped('quantity')), 5)
+        moves.picked = True
+        moves._action_done()
+        with self.assertRaises(UserError):
+            self.order.cancelar()
+        self.assertEqual(self.order.state, 'confirm')
+        self.assertEqual(len(self.order.picking_ids), 2)
+        self.assertEqual(line.product_uom_qty, 5)
+
+    def test_same_product_with_two_source_lots_keeps_lot_identity(self):
+        lot = self.env['stock.lot'].create({
+            'name': 'PANEL-10', 'product_id': self.panel.id,
+            'company_id': self.env.company.id, 'largo': 10,
+        })
+        self.env['stock.quant']._update_available_quantity(self.panel, self.stock, 2, lot_id=lot)
+        self.order.write({'corte_ids': [Command.create({'lote_id': lot.id, 'product_qty': 2, 'corte1': 4})]})
+        self.order.confirmar()
+        consumed = self.order.picking_ids.filtered(lambda p: p.orden_trabajo_role == 'consumption').move_line_ids
+        self.assertEqual(sum(consumed.filtered(lambda ml: ml.lot_id == self.lot).mapped('quantity')), 5)
+        self.assertEqual(sum(consumed.filtered(lambda ml: ml.lot_id == lot).mapped('quantity')), 2)
+        self.order.cancelar()
+        self.assertEqual(self._available(self.lot), 5)
+        self.assertEqual(self._available(lot), 2)
+
     def test_confirmed_order_cannot_be_edited_or_deleted(self):
         self.order.confirmar()
         for operation in (
