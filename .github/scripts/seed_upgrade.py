@@ -1,0 +1,5 @@
+project = env['project.project'].create({'name': 'OT-UPGRADE-PROJECT', 'company_id': env.company.id})
+product = env['product.product'].create({'name': 'OT-UPGRADE-PANEL', 'is_storable': True, 'tracking': 'lot'})
+lot = env['stock.lot'].create({'name': 'OT-UPGRADE-LOT', 'product_id': product.id, 'company_id': env.company.id, 'largo': 10})
+env['orden.trabajo.corte'].create({'project_id': project.id, 'lote_id': lot.id, 'product_qty': 2, 'corte1': 3})
+env.cr.commit()

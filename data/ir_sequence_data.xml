@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="sequence_orden_trabajo" model="ir.sequence">
+        <field name="name">Orden de trabajo</field>
+        <field name="code">orden.trabajo.serial</field>
+        <field name="prefix">OT/</field>
+        <field name="padding">6</field>
+        <field name="company_id" eval="False"/>
+    </record>
+    <record id="sequence_orden_trabajo_lot" model="ir.sequence">
+        <field name="name">Lote de corte</field>
+        <field name="code">orden.trabajo.lote</field>
+        <field name="prefix">OT-LOT/</field>
+        <field name="padding">6</field>
+        <field name="company_id" eval="False"/>
+    </record>
+</odoo>

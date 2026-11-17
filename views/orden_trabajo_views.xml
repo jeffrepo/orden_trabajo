@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="orden_trabajo_tree" model="ir.ui.view">
+        <field name="name">orden.trabajo.list</field>
+        <field name="model">orden.trabajo</field>
+        <field name="arch" type="xml">
+            <list string="Órdenes de trabajo">
+                <field name="name"/>
+                <field name="fecha"/>
+                <field name="sale_id"/>
+                <field name="fecha_produccion" optional="hide"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="state" widget="badge" decoration-success="state == 'confirm'"/>
+            </list>
+        </field>
+    </record>
+    <record id="orden_trabajo_form" model="ir.ui.view">
+        <field name="name">orden.trabajo.form</field>
+        <field name="model">orden.trabajo</field>
+        <field name="arch" type="xml">
+            <form string="Orden de trabajo">
+                <header>
+                    <button name="confirmar" string="Confirmar" type="object" class="oe_highlight" invisible="state != 'draft'"/>
+                    <button name="cancelar" string="Cancelar" type="object" invisible="state != 'confirm'" confirm="Se revertirán el inventario y las líneas de venta generadas por esta orden, si aún es posible."/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,confirm"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_pickings" string="Transferencias" type="object" class="oe_stat_button" icon="fa-exchange"/>
+                    </div>
+                    <field name="company_id" invisible="True"/>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="sale_id" readonly="state != 'draft'"/>
+                            <field name="project_name"/>
+                            <field name="revisado_por"/>
+                            <field name="autorizado_por"/>
+                            <field name="observaciones"/>
+                        </group>
+                        <group>
+                            <field name="fecha"/>
+                            <field name="fecha_produccion"/>
+                            <field name="stock_picking_type_id" readonly="state != 'draft'"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page name="cortes" string="Cortes">
+                            <field name="corte_ids" readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="company_id" column_invisible="True"/>
+                                    <field name="lote_id" options="{'no_create': True}"/>
+                                    <field name="product_id"/>
+                                    <field name="product_qty"/>
+                                    <field name="corte1"/>
+                                    <field name="corte2"/>
+                                    <field name="corte3"/>
+                                    <field name="corte4"/>
+                                    <field name="corte5"/>
+                                    <field name="corte6"/>
+                                    <field name="total"/>
+                                    <field name="sobra"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page name="molduras" string="Molduras y paneles">
+                            <field name="moldura_panel_ids" readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="company_id" column_invisible="True"/>
+                                    <field name="product_id"/>
+                                    <field name="cantidad"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page name="accesorios" string="Tornillería y accesorios">
+                            <field name="tornilleria_accesorio_ids" readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="company_id" column_invisible="True"/>
+                                    <field name="product_id"/>
+                                    <field name="cantidad"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="orden_trabajo_action_window" model="ir.actions.act_window">
+        <field name="name">Órdenes de trabajo</field>
+        <field name="res_model">orden.trabajo</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <menuitem id="orden_trabajo_orden_trabajo_menu" name="Órdenes de trabajo"
+              parent="mrp.menu_mrp_manufacturing" action="orden_trabajo_action_window"
+              groups="mrp.group_mrp_manager" sequence="30"/>
+</odoo>

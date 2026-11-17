@@ -1,105 +1,96 @@
-# Órdenes de trabajo — Odoo 19
+# Órdenes de trabajo - Odoo 19
 
-Extiende los proyectos con las pestañas **Cortes**, **Molduras y paneles** y
-**Tornillería y accesorios**. Nombre técnico: `orden_trabajo`.
-Versión del módulo: `19.0.1.0.0`.
+Migración del módulo original de **Odoo 10** proporcionado por el usuario.
+Versión: **19.0.2.0.0**. Autor original: Rodolfo Borstcheff.
 
-## Instalación y actualización
+## Dónde aparece
 
-Colocar este repositorio en una carpeta llamada `orden_trabajo` dentro de una
-ruta de addons. Dependencias: `project`, `stock` y `sale`; no requiere Punto de
-Venta ni GDOMEX.
+**Fabricación > Operaciones > Órdenes de trabajo**, para administradores de
+Fabricación. La vista `orden_trabajo.orden_trabajo_form` vuelve a pertenecer al
+modelo independiente `orden.trabajo`. La impresión está en **Imprimir > Orden
+de Trabajo**.
 
-En una base de Odoo 19 nueva:
+Dependencias: `mrp`, `sale_stock` y `project`. Para confirmar y cancelar se
+necesitan también permisos de Inventario y de escritura sobre la venta vinculada.
+Los permisos se comprueban con el usuario actual, sin sudo en las operaciones.
+
+## Funcionamiento recuperado
+
+- Nombre/secuencia, fechas, venta, tipo de albarán, estados y tres pestañas.
+- Campos de producción, observaciones, revisión y autorización identificados en
+  la captura/PDF y en la extensión antigua de GDOMEX.
+- Confirmar consume los lotes seleccionados del almacén de la venta hacia la
+  ubicación de producción del producto. Devuelve los cortes y sobrantes al
+  almacén, reutilizando o creando lotes por producto, largo y compañía.
+- Agrega a la venta los cortes solicitados, molduras y accesorios. Los sobrantes
+  regresan al inventario; no se venden. No elimina las líneas previas de la venta.
+- Los paneles son productos almacenables con seguimiento por lotes. Las cantidades
+  se expresan en la unidad del producto; los cortes y el largo usan la misma unidad
+  de longitud. Se conserva el precio de lista utilizado por el módulo de Odoo 10.
+- Totales y sobrantes se recalculan también al importar o editar por API.
+- Cada confirmación registra sus transferencias y líneas comerciales. El botón
+  Transferencias permite consultar tanto operaciones originales como reversiones.
+
+## Cancelación automática
+
+Cancelar devuelve primero las piezas producidas a producción y después recupera
+los paneles originales, mediante nuevos movimientos vinculados a los anteriores.
+Elimina las líneas generadas en presupuestos. Si la venta ya está confirmada,
+Odoo exige conservar las líneas: su cantidad se deja en cero y se cancelan sus
+movimientos de entrega pendientes. Las demás líneas de la venta no se modifican.
+Después puede corregirse y confirmarse nuevamente la orden.
+
+Toda la operación se revierte si falla un paso. Se bloquea cuando hay facturas
+vinculadas, entregas realizadas, stock insuficiente o reservado por otras
+operaciones, devoluciones manuales existentes, venta bloqueada, o lotes con
+paquetes/propietario que requieren una devolución manual. Las órdenes confirmadas
+antes de esta migración carecen de vínculos fiables con sus operaciones: no se
+intenta adivinar qué inventario o líneas comerciales revertir.
+
+## Reporte
+
+Reporte QWeb reconstruido con el PDF de referencia: datos de la compañía, cliente,
+proyecto, fechas, tabla de seis cortes, totales, resumen de medidas, accesorios,
+molduras, observaciones y firmas. Logo/dirección proceden de la compañía de la
+orden, sin datos de clientes ni marcas fijos en el código. El ZIP original no
+contenía su plantilla de impresión.
+
+El campo Proyecto usa el texto indicado en la orden; si está vacío, toma
+`sale.order.proyecto` cuando GDOMEX lo proporciona y, finalmente, el nombre de la
+orden. `stock.lot.largo` conserva el nombre y columna usados por GDOMEX.
+
+## Actualización
+
+Con el código en una carpeta llamada `orden_trabajo` dentro de addons:
 
 ```sh
-odoo -d BASE_DE_PRUEBAS -i orden_trabajo --stop-after-init
+odoo -d BASE_ODOO_19 -u orden_trabajo --stop-after-init
 ```
 
-En una base **ya migrada a Odoo 19**, actualizar el módulo:
+Para una instalación nueva, usar `-i orden_trabajo`.
 
-```sh
-odoo -d BASE_DE_PRUEBAS -u orden_trabajo --stop-after-init
-```
+La base debe haber sido migrada a Odoo 19 por separado; este addon no convierte
+por sí solo una base completa de Odoo 10. Se conservan modelos/campos e IDs XML
+originales para facilitar la migración de sus registros. El cambio del modelo
+estándar `stock.production.lot` a `stock.lot` corresponde a la migración de la base.
 
-Este repositorio migra el código del addon; no convierte por sí solo una base de
-Odoo 15 a Odoo 19. La migración de la base y de los addons estándar debe haber
-resuelto el cambio de `stock.production.lot` a `stock.lot`. Probar primero en
-una copia de la base con los demás módulos utilizados en producción.
-
-## Uso y permisos
-
-Abrir el formulario de un proyecto y completar sus pestañas de trabajo.
-En Cortes, seleccionar un lote existente y registrar la cantidad y hasta seis
-longitudes de corte. Los seis cortes y el largo del lote deben usar la misma
-unidad de longitud:
-
-- `total = corte1 + corte2 + corte3 + corte4 + corte5 + corte6`.
-- `sobra = lote.largo - total`.
-- La cantidad de piezas no multiplica las longitudes; se conserva el cálculo
-  original. Un sobrante negativo indica que los cortes exceden el largo.
-- Los resultados se almacenan y recalculan en formularios, importaciones y API,
-  también al cambiar el lote o su largo.
-
-Los usuarios de Proyectos pueden gestionar las líneas de los proyectos que
-pueden ver y consultar lotes de sus compañías habilitadas. Para crear lotes o
-editar su largo necesitan permisos de Inventario. Los administradores de
-Proyectos pueden acceder también a proyectos privados dentro de sus compañías.
-Las líneas se eliminan junto con su proyecto.
-
-## Cambios respecto a Odoo 15
-
-- Dependencias explícitas de Proyectos e Inventario.
-- `stock.production.lot` → `stock.lot`.
-- Vistas `tree` → `list`, compatibles con Odoo 19.
-- Precisión decimal `Product Unit`, utilizada por Inventario en Odoo 19.
-- Eliminación de imports obsoletos (`decimal_precision`, `_lt`,
-  `odoo.osv.expression`) y código sin uso.
-- Permisos de Proyectos en lugar de Punto de Venta, con reglas por compañía
-  y visibilidad del proyecto.
-- Campos calculados almacenados en lugar de resultados dependientes solamente
-  de `onchange`.
-- Script de actualización que recalcula los totales y sobrantes de las líneas
-  existentes; conserva los nombres de modelos, campos e identificadores XML.
-
-### Qué ocurrió con el bloque comentado
-
-El commit `3cb0ae4` de abril de 2022 deshabilitó la clase `orden.trabajo`.
-Las líneas activas ya utilizan `project_id`, y la vista hereda
-`project.edit_project`. La clase comentada utilizaba `orden_id`, un inverso
-que no existe en estas líneas, y una secuencia no incluida en el repositorio.
-
-Por eso se conserva la integración sobre `project.project` y se elimina ese
-bloque inactivo. No se crean órdenes independientes ni se añaden los campos
-comentados de fecha, venta, tipo de operación o estado. Si una base antigua
-todavía contiene registros de aquel modelo independiente, requiere analizar y
-migrar esos registros antes de actualizar.
-
-### Integración con GDOMEX
-
-GDOMEX define `stock.lot.largo`. Este addon declara el mismo campo Float y
-columna, de modo que puede funcionar solo y utilizar los valores existentes
-cuando GDOMEX está instalado. La vista del lote se aplica con prioridad 10,
-antes de la vista actual de GDOMEX (prioridad 16), que reemplaza el grupo
-principal y ya muestra Largo.
-
-El reporte y el asistente de órdenes de trabajo de GDOMEX siguen perteneciendo
-a ese otro addon. No se modifican en esta migración.
+La adaptación anterior a Proyectos se conserva para no perder líneas que ya se
+hubieran registrado: sus pestañas usan ahora `project_orden_trabajo_form`. Un
+script renombra la vista anterior antes de restaurar el formulario independiente;
+recalcula compañías, totales y sobrantes sin reasignar líneas de proyectos a
+órdenes arbitrarias.
 
 ## Pruebas
 
+GitHub Actions instala y actualiza con `odoo:19.0` y PostgreSQL 16. La suite incluye
+las pruebas de proyectos existentes y pruebas de consumo/producción por lotes,
+ventas, cancelación/reconfirmación, rollback por faltantes, bloqueo por facturas,
+permisos y formulario/menú/reporte PDF. Ejecutar localmente en una base de pruebas:
+
 ```sh
-odoo -d BASE_DE_PRUEBAS -i orden_trabajo --without-demo \
+odoo -d BASE_PRUEBAS -i orden_trabajo --without-demo \
   --test-enable --test-tags=/orden_trabajo --stop-after-init --no-http
 ```
 
-GitHub Actions ejecuta instalación y actualización con la imagen oficial
-`odoo:19.0` y PostgreSQL 16. La suite cubre creación por lotes sin onchange,
-recálculo al cambiar cortes/lotes, formularios, permisos sin Punto de Venta,
-proyectos privados, compañías, borrado de proyectos, recálculo de datos
-existentes y vistas combinadas. No prueba la migración completa de una base
-15 ni la combinación con addons Enterprise o GDOMEX.
-
-Referencias: [ORM de Odoo 19](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html),
-[vistas de Odoo 19](https://www.odoo.com/documentation/19.0/developer/reference/user_interface/view_architectures.html),
-[código de Inventario](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_move.py).
+La validación no sustituye una prueba de la base migrada con GDOMEX y los demás
+addons instalados en producción.
