@@ -51,6 +51,7 @@
                                     <field name="company_id" column_invisible="True"/>
                                     <field name="lote_id" options="{'no_create': True}"/>
                                     <field name="product_id"/>
+                                    <field name="largo_lote"/>
                                     <field name="product_qty"/>
                                     <field name="corte1"/>
                                     <field name="corte2"/>

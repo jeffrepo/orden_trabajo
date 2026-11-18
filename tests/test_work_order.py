@@ -251,3 +251,78 @@ class TestWorkOrder(TransactionCase):
             self.env['orden.trabajo.corte'].with_context(
                 allowed_company_ids=(self.env.company | company).ids,
             ).create({'orden_id': order.id, 'lote_id': self.lot.id, 'product_qty': 1, 'corte1': 1})
+
+    def _create_length_order(self, unit, pieces=1, cut1=4.5, cut2=0):
+        product = self.env['product.product'].create({
+            'name': 'Panel en metros', 'is_storable': True, 'tracking': 'lot',
+            'uom_id': unit.id, 'list_price': 25,
+        })
+        lot = self.env['stock.lot'].create({
+            'name': 'PANEL-11.90', 'product_id': product.id,
+            'company_id': self.env.company.id, 'largo': 11.9,
+        })
+        order = self.env['orden.trabajo'].create({
+            'sale_id': self.sale.id, 'stock_picking_type_id': self.warehouse.int_type_id.id,
+            'corte_ids': [Command.create({
+                'lote_id': lot.id, 'product_qty': pieces, 'corte1': cut1, 'corte2': cut2,
+            })],
+        })
+        return order, product, lot
+
+    def test_metre_cut_remainder_and_cancellation(self):
+        metre = self.env.ref('uom.product_uom_meter')
+        metre.name = 'M'
+        order, product, lot = self._create_length_order(metre)
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 11.9, lot_id=lot)
+        self.assertAlmostEqual(order.corte_ids.largo_lote, 11.9)
+        self.assertAlmostEqual(order.corte_ids.total, 4.5)
+        self.assertAlmostEqual(order.corte_ids.sobra, 7.4)
+        order.confirmar()
+        cut = order._buscar_lote_por_largo(product.id, 4.5)
+        remainder = order._buscar_lote_por_largo(product.id, 7.4)
+        self.assertAlmostEqual(self._available(lot), 0)
+        self.assertAlmostEqual(self._available(cut), 4.5)
+        self.assertAlmostEqual(self._available(remainder), 7.4)
+        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 4.5)
+        self.assertEqual(order.sale_line_ids.product_uom_id, metre)
+        self.assertEqual(order.sale_line_ids.price_unit, 25)
+        order.cancelar()
+        self.assertAlmostEqual(self._available(lot), 11.9)
+        self.assertAlmostEqual(self._available(cut), 0)
+        self.assertAlmostEqual(self._available(remainder), 0)
+        self.assertFalse(order.sale_line_ids)
+        order.confirmar()
+        self.assertAlmostEqual(self._available(remainder), 7.4)
+
+    def test_custom_m_unit_multiple_panels(self):
+        custom_m = self.env['uom.uom'].create({'name': 'M'})
+        order, product, lot = self._create_length_order(custom_m, pieces=3, cut1=2, cut2=2.5)
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 35.7, lot_id=lot)
+        order.confirmar()
+        self.assertAlmostEqual(self._available(lot), 0)
+        self.assertAlmostEqual(self._available(order._buscar_lote_por_largo(product.id, 2)), 6)
+        self.assertAlmostEqual(self._available(order._buscar_lote_por_largo(product.id, 2.5)), 7.5)
+        self.assertAlmostEqual(self._available(order._buscar_lote_por_largo(product.id, 7.4)), 22.2)
+        self.assertEqual(sorted(order.sale_line_ids.mapped('product_uom_qty')), [6, 7.5])
+        self.assertAlmostEqual(sum(order.picking_ids.filtered(
+            lambda picking: picking.orden_trabajo_role == 'production',
+        ).move_ids.mapped('quantity')), 35.7)
+        order.cancelar()
+        self.assertAlmostEqual(self._available(lot), 35.7)
+
+    def test_length_uom_conversion_and_confirmed_sale_reversal(self):
+        cm = self.env.ref('uom.product_uom_cm')
+        cm.active = True
+        order, product, lot = self._create_length_order(cm)
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 1190, lot_id=lot)
+        self.sale.action_confirm()
+        order.confirmar()
+        remainder = order._buscar_lote_por_largo(product.id, 7.4)
+        self.assertAlmostEqual(self._available(lot), 0)
+        self.assertAlmostEqual(self._available(remainder), 740)
+        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 450)
+        self.assertEqual(order.sale_line_ids.product_uom_id, cm)
+        order.cancelar()
+        self.assertAlmostEqual(self._available(lot), 1190)
+        self.assertAlmostEqual(self._available(remainder), 0)
+        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 0)

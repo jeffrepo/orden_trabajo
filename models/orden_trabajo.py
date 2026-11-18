@@ -15,8 +15,11 @@ class OrdenTrabajoCortes(models.Model):
     product_id = fields.Many2one(
         related='lote_id.product_id', string='Producto', store=True,
     )
+    largo_lote = fields.Float(related='lote_id.largo', string='Largo del panel (m)')
     product_qty = fields.Float(
-        string='Cantidad', digits='Product Unit', required=True, default=0.0,
+        string='Cantidad de paneles', digits='Product Unit', required=True, default=0.0,
+        help='Número de paneles a cortar. Los largos y cortes se ingresan en metros; '
+             'el inventario y la venta se convierten a la unidad del producto.',
     )
     corte1 = fields.Float(string='Corte 1', required=True, default=0.0)
     corte2 = fields.Float(string='Corte 2', required=True, default=0.0)

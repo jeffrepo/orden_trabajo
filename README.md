@@ -1,7 +1,7 @@
 # Órdenes de trabajo - Odoo 19
 
 Migración del módulo original de **Odoo 10** proporcionado por el usuario.
-Versión: **19.0.2.0.0**. Autor original: Rodolfo Borstcheff.
+Versión: **19.0.2.0.1**. Autor original: Rodolfo Borstcheff.
 
 ## Dónde aparece
 
@@ -24,9 +24,20 @@ Los permisos se comprueban con el usuario actual, sin sudo en las operaciones.
   almacén, reutilizando o creando lotes por producto, largo y compañía.
 - Agrega a la venta los cortes solicitados, molduras y accesorios. Los sobrantes
   regresan al inventario; no se venden. No elimina las líneas previas de la venta.
-- Los paneles son productos almacenables con seguimiento por lotes. Las cantidades
-  se expresan en la unidad del producto; los cortes y el largo usan la misma unidad
-  de longitud. Se conserva el precio de lista utilizado por el módulo de Odoo 10.
+- Los paneles son productos almacenables con seguimiento por lotes. En Cortes,
+  **Cantidad de paneles** es el número de piezas y **Largo del panel (m)** muestra
+  el largo configurado en el lote. Los largos y cortes se ingresan en metros.
+  Para productos en M/m se mueve `paneles × largo`: un panel de 11.90 m con un
+  corte de 4.50 m consume 11.90 m, produce 4.50 m y devuelve 7.40 m útiles en
+  otro lote. Solo los 4.50 m cortados se agregan a la venta. Las unidades lineales
+  relacionadas con el metro usan la conversión de Odoo; una unidad independiente
+  denominada M, metro o metros también se interpreta como metros. Los productos
+  en unidades conservan las cantidades por pieza. Molduras y accesorios mantienen
+  sus cantidades en la unidad del producto. Se conserva el precio de lista por
+  unidad del producto utilizado por el módulo original.
+- La corrección de cantidades en metros se aplica al confirmar nuevas órdenes.
+  No modifica transferencias ya realizadas; Cancelar revierte las cantidades
+  registradas en esas transferencias, permitiendo reconfirmar cuando sea posible.
 - Totales y sobrantes se recalculan también al importar o editar por API.
 - Cada confirmación registra sus transferencias y líneas comerciales. El botón
   Transferencias permite consultar tanto operaciones originales como reversiones.

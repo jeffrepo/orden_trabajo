@@ -140,7 +140,20 @@ class OrdenTrabajo(models.Model):
             raise UserError(_('No se pudo completar la transferencia de la orden.'))
         return picking
 
+    def _cut_product_quantity(self, product, pieces, length):
+        """Convert a panel count and its length in metres to the product UoM."""
+        unit = product.uom_id
+        metre = self.env.ref('uom.product_uom_meter')
+        if unit._has_common_reference(metre):
+            return metre._compute_quantity(pieces * length, unit, round=False)
+        # Older databases may have their own standalone metre unit named M.
+        if unit.with_context(lang=None).name.strip().casefold() in ('m', 'metro', 'metros'):
+            return pieces * length
+        return pieces
+
     def _sale_line_values(self, product, quantity, length=None):
+        if length is not None:
+            quantity = self._cut_product_quantity(product, quantity, length)
         values = {
             'order_id': self.sale_id.id, 'product_id': product.id,
             'product_uom_id': product.uom_id.id, 'product_uom_qty': quantity,
@@ -166,7 +179,8 @@ class OrdenTrabajo(models.Model):
                 warehouse_stock = order.sale_id.warehouse_id.lot_stock_id
                 for line in order.corte_ids:
                     production = line.product_id.with_company(order.company_id).property_stock_production
-                    consumption[production].append((line.lote_id, line.product_qty, False))
+                    quantity = order._cut_product_quantity(line.product_id, line.product_qty, line.lote_id.largo)
+                    consumption[production].append((line.lote_id, quantity, False))
                     for i in range(1, 7):
                         length = float_round(line[f'corte{i}'], precision_digits=6)
                         if length:
@@ -181,6 +195,7 @@ class OrdenTrabajo(models.Model):
                 for (product, length), quantity in outputs.items():
                     lot = order._get_output_lot(product, length)
                     production = product.with_company(order.company_id).property_stock_production
+                    quantity = order._cut_product_quantity(product, quantity, length)
                     production_entries[production].append((lot, quantity, False))
                 for production, entries in production_entries.items():
                     order._make_transfer(production, warehouse_stock, entries, 'production')
