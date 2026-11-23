@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="stock_picking_form_work_order_metres" model="ir.ui.view">
+        <field name="name">stock.picking.form.work.order.metres</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <field name="origin" position="after">
+                <field name="orden_trabajo_id" invisible="True"/>
+            </field>
+            <xpath expr="//field[@name='move_ids']/list/field[@name='quantity']" position="after">
+                <field name="orden_trabajo_metros" optional="show" column_invisible="not parent.orden_trabajo_id"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

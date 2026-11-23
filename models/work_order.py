@@ -76,10 +76,15 @@ class OrdenTrabajo(models.Model):
                 raise UserError(_('Los paneles deben ser productos almacenables con seguimiento por lotes.'))
             if line.product_qty <= 0 or any(line[f'corte{i}'] < 0 for i in range(1, 7)):
                 raise UserError(_('La cantidad debe ser positiva y los cortes no pueden ser negativos.'))
+            if line.lote_id.largo <= 0:
+                raise UserError(_('Configure un largo positivo en el lote %s.', line.lote_id.display_name))
             if line.total <= 0 or float_compare(line.total, line.lote_id.largo, precision_digits=6) > 0:
                 raise UserError(_('La suma de los cortes debe ser positiva y no superar el largo del panel.'))
-            if not self._uses_length_uom(product) and not product.with_company(self.company_id).property_stock_production:
-                raise UserError(_('Configure la ubicación de producción del producto.'))
+            if not self._uses_length_uom(product):
+                if not self._uses_piece_uom(product):
+                    raise UserError(_('El producto %s debe medirse en metros o unidades de panel.', product.display_name))
+                if self.env['decimal.precision'].precision_get('Product Unit') < 6:
+                    raise UserError(_('Para rebajar fracciones de panel, configure al menos 6 decimales en la precisión «Product Unit».'))
         for line in self.moldura_panel_ids:
             if line.cantidad <= 0:
                 raise UserError(_('Las cantidades de molduras deben ser positivas.'))
@@ -104,7 +109,7 @@ class OrdenTrabajo(models.Model):
             })
         return lot
 
-    def _make_transfer(self, source, destination, entries, role, original=False, sale_lines=None):
+    def _make_transfer(self, source, destination, entries, role, original=False, sale_lines=None, metres=None):
         """entries: (lot, quantity in product UoM, original move for a return)."""
         self.ensure_one()
         picking_type = (original.picking_type_id.return_picking_type_id or original.picking_type_id) if original else self.stock_picking_type_id
@@ -122,6 +127,11 @@ class OrdenTrabajo(models.Model):
             'origin_returned_move_id': origin.id if origin else False,
             'sale_line_id': sale_lines[index].id if sale_lines else (origin.sale_line_id.id if origin else False),
             'to_refund': bool(origin and origin.sale_line_id),
+            'orden_trabajo_metros': metres[index] if metres is not None else (
+                origin.orden_trabajo_metros * quantity / origin.product_uom._compute_quantity(
+                    origin.quantity, lot.product_id.uom_id, round=False,
+                ) if origin and origin.quantity else 0.0
+            ),
             'procure_method': 'make_to_stock',
         } for index, (lot, quantity, origin) in enumerate(entries)])
         moves._action_confirm(merge=False)
@@ -142,10 +152,9 @@ class OrdenTrabajo(models.Model):
             raise UserError(_('No se pudo completar la transferencia de la orden.'))
         return picking
 
-    def _has_metre_reference(self, unit):
-        metre = self.env.ref('uom.product_uom_meter')
-        if unit.parent_path and metre.parent_path:
-            return unit._has_common_reference(metre)
+    def _has_uom_reference(self, unit, reference):
+        if unit.parent_path and reference.parent_path:
+            return unit._has_common_reference(reference)
 
         # Migrated units may lack the cached parent_path. Read the actual
         # references without modifying the shared UoM configuration.
@@ -156,7 +165,17 @@ class OrdenTrabajo(models.Model):
                 uom = uom.relative_uom_id
             return ids
 
-        return bool(ancestors(unit) & ancestors(metre))
+        return bool(ancestors(unit) & ancestors(reference))
+
+    def _has_metre_reference(self, unit):
+        return self._has_uom_reference(unit, self.env.ref('uom.product_uom_meter'))
+
+    def _uses_piece_uom(self, product):
+        unit = product.uom_id
+        return self._has_uom_reference(unit, self.env.ref('uom.product_uom_unit')) or (
+            unit.with_context(lang=None).name.strip().casefold()
+            in ('uni', 'un', 'unidad', 'unidades', 'unit', 'units')
+        )
 
     def _uses_length_uom(self, product):
         unit = product.uom_id
@@ -164,7 +183,7 @@ class OrdenTrabajo(models.Model):
             unit.with_context(lang=None).name.strip().casefold() in ('m', 'metro', 'metros')
         )
 
-    def _cut_product_quantity(self, product, pieces, length):
+    def _cut_product_quantity(self, product, pieces, length, source_length):
         """Convert a panel count and its length in metres to the product UoM."""
         unit = product.uom_id
         metre = self.env.ref('uom.product_uom_meter')
@@ -173,11 +192,31 @@ class OrdenTrabajo(models.Model):
         # Older databases may have their own standalone metre unit named M.
         if unit.with_context(lang=None).name.strip().casefold() in ('m', 'metro', 'metros'):
             return pieces * length
-        return pieces
+        fraction = pieces * length / source_length
+        piece_unit = self.env.ref('uom.product_uom_unit')
+        if self._has_uom_reference(unit, piece_unit):
+            return piece_unit._compute_quantity(fraction, unit, round=False)
+        return fraction
+
+    def _cut_quantities(self, line):
+        """Round cumulative consumption so a fully used panel totals exactly one."""
+        total_length = previous_quantity = 0.0
+        for i in range(1, 7):
+            length = float_round(line[f'corte{i}'], precision_digits=6)
+            if not length:
+                continue
+            total_length += length
+            cumulative_quantity = float_round(self._cut_product_quantity(
+                line.product_id, line.product_qty, total_length, line.lote_id.largo,
+            ), precision_rounding=line.product_id.uom_id.rounding)
+            quantity = float_round(cumulative_quantity - previous_quantity,
+                                   precision_rounding=line.product_id.uom_id.rounding)
+            if quantity <= 0:
+                raise UserError(_('El corte del lote %s es demasiado pequeño para la precisión de inventario.', line.lote_id.display_name))
+            yield length, quantity, line.product_qty * length
+            previous_quantity = cumulative_quantity
 
     def _sale_line_values(self, product, quantity, length=None):
-        if length is not None:
-            quantity = self._cut_product_quantity(product, quantity, length)
         values = {
             'order_id': self.sale_id.id, 'product_id': product.id,
             'product_uom_id': product.uom_id.id, 'product_uom_qty': quantity,
@@ -185,7 +224,7 @@ class OrdenTrabajo(models.Model):
             'orden_trabajo_cycle': self.confirmation_number,
         }
         if length is not None:
-            values['name'] = '%s - %s' % (product.display_name, length)
+            values['name'] = '%s - %s m' % (product.display_name, length)
         return values
 
     def confirmar(self):
@@ -198,35 +237,16 @@ class OrdenTrabajo(models.Model):
                 order = order.with_company(order.company_id)
                 order._validate_confirmation()
                 super(OrdenTrabajo, order).write({'confirmation_number': order.confirmation_number + 1})
-                outputs, sale_cuts = defaultdict(float), defaultdict(float)
-                consumption = defaultdict(list)
-                sale_keys = defaultdict(list)
+                sale_cuts = defaultdict(float)
+                consumption, sale_keys, metres = [], [], []
                 warehouse_stock = order.sale_id.warehouse_id.lot_stock_id
                 for line in order.corte_ids:
-                    if order._uses_length_uom(line.product_id):
-                        destination = order.sale_id.partner_shipping_id.property_stock_customer
-                        for i in range(1, 7):
-                            length = float_round(line[f'corte{i}'], precision_digits=6)
-                            if length:
-                                key = (line.product_id, length)
-                                quantity = order._cut_product_quantity(line.product_id, line.product_qty, length)
-                                consumption[destination].append((line.lote_id, quantity, False))
-                                sale_keys[destination].append(key)
-                                sale_cuts[key] += line.product_qty
-                        continue
-                    # Products counted in pieces retain the original transformation flow.
-                    production = line.product_id.with_company(order.company_id).property_stock_production
-                    quantity = order._cut_product_quantity(line.product_id, line.product_qty, line.lote_id.largo)
-                    consumption[production].append((line.lote_id, quantity, False))
-                    sale_keys[production].append(None)
-                    for i in range(1, 7):
-                        length = float_round(line[f'corte{i}'], precision_digits=6)
-                        if length:
-                            outputs[line.product_id, length] += line.product_qty
-                            sale_cuts[line.product_id, length] += line.product_qty
-                    remainder = float_round(line.sobra, precision_digits=6)
-                    if remainder > 0:
-                        outputs[line.product_id, remainder] += line.product_qty
+                    for length, quantity, cut_metres in order._cut_quantities(line):
+                        key = (line.product_id, length)
+                        consumption.append((line.lote_id, quantity, False))
+                        sale_keys.append(key)
+                        metres.append(cut_metres)
+                        sale_cuts[key] += quantity
                 sale_values = [order._sale_line_values(product, qty, length)
                                for (product, length), qty in sale_cuts.items()]
                 for line in order.moldura_panel_ids:
@@ -236,18 +256,11 @@ class OrdenTrabajo(models.Model):
                 # Link direct cut deliveries before sales can procure the same quantity again.
                 sale_lines = self.env['sale.order.line'].with_context(skip_procurement=True).create(sale_values)
                 cut_lines = dict(zip(sale_cuts, sale_lines))
-                for destination, entries in consumption.items():
-                    linked_lines = [cut_lines[key] if key else self.env['sale.order.line']
-                                    for key in sale_keys[destination]]
-                    order._make_transfer(warehouse_stock, destination, entries, 'consumption', sale_lines=linked_lines)
-                production_entries = defaultdict(list)
-                for (product, length), quantity in outputs.items():
-                    lot = order._get_output_lot(product, length)
-                    production = product.with_company(order.company_id).property_stock_production
-                    quantity = order._cut_product_quantity(product, quantity, length)
-                    production_entries[production].append((lot, quantity, False))
-                for production, entries in production_entries.items():
-                    order._make_transfer(production, warehouse_stock, entries, 'production')
+                if consumption:
+                    order._make_transfer(
+                        warehouse_stock, order.sale_id.partner_shipping_id.property_stock_customer,
+                        consumption, 'consumption', sale_lines=[cut_lines[key] for key in sale_keys], metres=metres,
+                    )
                 sale_lines.with_context(skip_procurement=False)._action_launch_stock_rule()
                 super(OrdenTrabajo, order).write({'state': 'confirm'})
         return True

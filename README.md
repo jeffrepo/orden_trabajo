@@ -1,7 +1,7 @@
 # Órdenes de trabajo - Odoo 19
 
 Migración del módulo original de **Odoo 10** proporcionado por el usuario.
-Versión: **19.0.2.0.3**. Autor original: Rodolfo Borstcheff.
+Versión: **19.0.2.0.4**. Autor original: Rodolfo Borstcheff.
 
 ## Dónde aparece
 
@@ -38,18 +38,32 @@ Los permisos se comprueban con el usuario actual, sin sudo en las operaciones.
   como metros. Si la migración dejó vacía la jerarquía almacenada de una unidad
   (`parent_path`), se consultan sus unidades de referencia sin alterar su
   configuración. Se conserva el precio de lista por unidad del producto.
-- Los productos contados por unidades conservan el flujo anterior: consumo de
-  paneles completos y producción de cortes y sobrantes en lotes por largo.
+- Para paneles en **UNI**, la salida descuenta únicamente la fracción utilizada:
+  `paneles × metros cortados / largo del panel del lote`. No consume paneles
+  completos ni crea entradas de cortes o sobrantes. Cada lote usa su propio largo.
+  Ejemplo: 5 UNI de 11.90 m, cortando una pieza de 4.50 m, descuentan **0.378151 UNI**;
+  quedan **4.621849 UNI** en el mismo lote. **Sobra sigue mostrando 7.40 m** por panel.
+- Las columnas Demanda y Cantidad del albarán conservan UNI. La nueva columna
+  **Metros cortados** muestra 4.50 en ese ejemplo y también aparece en la reversión.
+  Las líneas generadas en la venta usan la misma fracción de UNI y quedan entregadas,
+  manteniendo el precio por UNI; confirmar la venta no genera una segunda salida.
+- Para fracciones de panel se requieren al menos **6 decimales en Product Unit**.
+  Se usa la precisión existente, sin cambiarla automáticamente. El redondeo se
+  acumula por línea para que varios cortes que completan un panel descuenten
+  exactamente 1 UNI. Los metros son la medida solicitada; las UNI se redondean
+  a la precisión del inventario. Los saldos fraccionarios representan longitud
+  equivalente, no un recuento de paneles físicamente enteros.
 - El nuevo flujo se aplica al confirmar órdenes. No modifica transferencias ya
   realizadas; Cancelar revierte las cantidades registradas en ellas, también
-  cuando pertenecen al flujo anterior.
+  cuando pertenecen al flujo anterior. Las transferencias antiguas no reciben
+  valores de metros inferidos ni se recalculan al cambiar el largo del lote.
 - Totales y sobrantes se recalculan también al importar o editar por API.
 - Cada confirmación registra sus transferencias y líneas comerciales. El botón
   Transferencias permite consultar tanto operaciones originales como reversiones.
 
 ## Cancelación automática
 
-Cancelar devuelve al lote original únicamente los metros despachados, mediante
+Cancelar devuelve al lote original la cantidad de M o fracción de UNI registrada, mediante
 movimientos de devolución vinculados a la salida. La cantidad entregada en la
 venta vuelve a cero. Para órdenes del flujo anterior, devuelve primero los
 cortes y sobrantes a producción y después recupera los paneles originales.
