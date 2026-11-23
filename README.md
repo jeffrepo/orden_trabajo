@@ -1,7 +1,7 @@
 # Órdenes de trabajo - Odoo 19
 
 Migración del módulo original de **Odoo 10** proporcionado por el usuario.
-Versión: **19.0.2.0.1**. Autor original: Rodolfo Borstcheff.
+Versión: **19.0.2.0.2**. Autor original: Rodolfo Borstcheff.
 
 ## Dónde aparece
 
@@ -19,40 +19,45 @@ Los permisos se comprueban con el usuario actual, sin sudo en las operaciones.
 - Nombre/secuencia, fechas, venta, tipo de albarán, estados y tres pestañas.
 - Campos de producción, observaciones, revisión y autorización identificados en
   la captura/PDF y en la extensión antigua de GDOMEX.
-- Confirmar consume los lotes seleccionados del almacén de la venta hacia la
-  ubicación de producción del producto. Devuelve los cortes y sobrantes al
-  almacén, reutilizando o creando lotes por producto, largo y compañía.
-- Agrega a la venta los cortes solicitados, molduras y accesorios. Los sobrantes
-  regresan al inventario; no se venden. No elimina las líneas previas de la venta.
+- Para productos medidos en metros, Confirmar da salida únicamente a
+  `cantidad de paneles × (corte1 + corte2 + … + corte6)` desde el lote elegido
+  hacia la ubicación del cliente de la venta. Cada corte registra su movimiento.
+  No crea lotes ni movimientos de entrada para cortes o sobrantes.
+- Ejemplo: con 11.90 M disponibles y un panel con corte de 4.50 m, salen 4.50 M
+  y quedan 7.40 M en el mismo lote. La columna Sobra sigue mostrando
+  `largo del panel − suma de cortes` por panel; no modifica el largo del lote.
+- Los cortes se agregan a la venta como ya despachados, vinculados a esa única
+  salida. Confirmar la venta antes o después de la orden no vuelve a descontarlos.
+  Molduras y accesorios mantienen su flujo normal de venta y entrega.
+  Las líneas previas de la venta no se modifican.
 - Los paneles son productos almacenables con seguimiento por lotes. En Cortes,
   **Cantidad de paneles** es el número de piezas y **Largo del panel (m)** muestra
   el largo configurado en el lote. Los largos y cortes se ingresan en metros.
-  Para productos en M/m se mueve `paneles × largo`: un panel de 11.90 m con un
-  corte de 4.50 m consume 11.90 m, produce 4.50 m y devuelve 7.40 m útiles en
-  otro lote. Solo los 4.50 m cortados se agregan a la venta. Las unidades lineales
-  relacionadas con el metro usan la conversión de Odoo; una unidad independiente
-  denominada M, metro o metros también se interpreta como metros. Los productos
-  en unidades conservan las cantidades por pieza. Molduras y accesorios mantienen
-  sus cantidades en la unidad del producto. Se conserva el precio de lista por
-  unidad del producto utilizado por el módulo original.
-- La corrección de cantidades en metros se aplica al confirmar nuevas órdenes.
-  No modifica transferencias ya realizadas; Cancelar revierte las cantidades
-  registradas en esas transferencias, permitiendo reconfirmar cuando sea posible.
+  Las unidades lineales relacionadas con el metro usan la conversión de Odoo;
+  una unidad independiente denominada M, metro o metros también se interpreta
+  como metros. Se conserva el precio de lista por unidad del producto.
+- Los productos contados por unidades conservan el flujo anterior: consumo de
+  paneles completos y producción de cortes y sobrantes en lotes por largo.
+- El nuevo flujo se aplica al confirmar órdenes. No modifica transferencias ya
+  realizadas; Cancelar revierte las cantidades registradas en ellas, también
+  cuando pertenecen al flujo anterior.
 - Totales y sobrantes se recalculan también al importar o editar por API.
 - Cada confirmación registra sus transferencias y líneas comerciales. El botón
   Transferencias permite consultar tanto operaciones originales como reversiones.
 
 ## Cancelación automática
 
-Cancelar devuelve primero las piezas producidas a producción y después recupera
-los paneles originales, mediante nuevos movimientos vinculados a los anteriores.
+Cancelar devuelve al lote original únicamente los metros despachados, mediante
+movimientos de devolución vinculados a la salida. La cantidad entregada en la
+venta vuelve a cero. Para órdenes del flujo anterior, devuelve primero los
+cortes y sobrantes a producción y después recupera los paneles originales.
 Elimina las líneas generadas en presupuestos. Si la venta ya está confirmada,
 Odoo exige conservar las líneas: su cantidad se deja en cero y se cancelan sus
 movimientos de entrega pendientes. Las demás líneas de la venta no se modifican.
 Después puede corregirse y confirmarse nuevamente la orden.
 
 Toda la operación se revierte si falla un paso. Se bloquea cuando hay facturas
-vinculadas, entregas realizadas, stock insuficiente o reservado por otras
+vinculadas, entregas externas a la orden, stock insuficiente o reservado por otras
 operaciones, devoluciones manuales existentes, venta bloqueada, o lotes con
 paquetes/propietario que requieren una devolución manual. Las órdenes confirmadas
 antes de esta migración carecen de vínculos fiables con sus operaciones: no se
@@ -93,7 +98,7 @@ esos datos necesitan resolverse antes de instalar el módulo independiente.
 ## Pruebas
 
 GitHub Actions instala y actualiza con `odoo:19.0` y PostgreSQL 16. La suite incluye
-pruebas de consumo/producción por lotes,
+pruebas de salida de cortes sin doble descuento, lotes, conversiones de unidad,
 ventas, cancelación/reconfirmación, rollback por faltantes, bloqueo por facturas,
 permisos y formulario/menú/reporte PDF. Ejecutar localmente en una base de pruebas:
 

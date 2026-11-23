@@ -78,7 +78,7 @@ class OrdenTrabajo(models.Model):
                 raise UserError(_('La cantidad debe ser positiva y los cortes no pueden ser negativos.'))
             if line.total <= 0 or float_compare(line.total, line.lote_id.largo, precision_digits=6) > 0:
                 raise UserError(_('La suma de los cortes debe ser positiva y no superar el largo del panel.'))
-            if not product.with_company(self.company_id).property_stock_production:
+            if not self._uses_length_uom(product) and not product.with_company(self.company_id).property_stock_production:
                 raise UserError(_('Configure la ubicación de producción del producto.'))
         for line in self.moldura_panel_ids:
             if line.cantidad <= 0:
@@ -104,7 +104,7 @@ class OrdenTrabajo(models.Model):
             })
         return lot
 
-    def _make_transfer(self, source, destination, entries, role, original=False):
+    def _make_transfer(self, source, destination, entries, role, original=False, sale_lines=None):
         """entries: (lot, quantity in product UoM, original move for a return)."""
         self.ensure_one()
         picking_type = (original.picking_type_id.return_picking_type_id or original.picking_type_id) if original else self.stock_picking_type_id
@@ -120,8 +120,10 @@ class OrdenTrabajo(models.Model):
             'location_dest_id': destination.id, 'picking_id': picking.id,
             'company_id': self.company_id.id,
             'origin_returned_move_id': origin.id if origin else False,
+            'sale_line_id': sale_lines[index].id if sale_lines else (origin.sale_line_id.id if origin else False),
+            'to_refund': bool(origin and origin.sale_line_id),
             'procure_method': 'make_to_stock',
-        } for lot, quantity, origin in entries])
+        } for index, (lot, quantity, origin) in enumerate(entries)])
         moves._action_confirm(merge=False)
         # Confirmation may automatically reserve other lots. Reserve the selected lot explicitly.
         moves._do_unreserve()
@@ -139,6 +141,12 @@ class OrdenTrabajo(models.Model):
         if picking.state != 'done':
             raise UserError(_('No se pudo completar la transferencia de la orden.'))
         return picking
+
+    def _uses_length_uom(self, product):
+        unit = product.uom_id
+        return unit._has_common_reference(self.env.ref('uom.product_uom_meter')) or (
+            unit.with_context(lang=None).name.strip().casefold() in ('m', 'metro', 'metros')
+        )
 
     def _cut_product_quantity(self, product, pieces, length):
         """Convert a panel count and its length in metres to the product UoM."""
@@ -176,11 +184,25 @@ class OrdenTrabajo(models.Model):
                 super(OrdenTrabajo, order).write({'confirmation_number': order.confirmation_number + 1})
                 outputs, sale_cuts = defaultdict(float), defaultdict(float)
                 consumption = defaultdict(list)
+                sale_keys = defaultdict(list)
                 warehouse_stock = order.sale_id.warehouse_id.lot_stock_id
                 for line in order.corte_ids:
+                    if order._uses_length_uom(line.product_id):
+                        destination = order.sale_id.partner_shipping_id.property_stock_customer
+                        for i in range(1, 7):
+                            length = float_round(line[f'corte{i}'], precision_digits=6)
+                            if length:
+                                key = (line.product_id, length)
+                                quantity = order._cut_product_quantity(line.product_id, line.product_qty, length)
+                                consumption[destination].append((line.lote_id, quantity, False))
+                                sale_keys[destination].append(key)
+                                sale_cuts[key] += line.product_qty
+                        continue
+                    # Products counted in pieces retain the original transformation flow.
                     production = line.product_id.with_company(order.company_id).property_stock_production
                     quantity = order._cut_product_quantity(line.product_id, line.product_qty, line.lote_id.largo)
                     consumption[production].append((line.lote_id, quantity, False))
+                    sale_keys[production].append(None)
                     for i in range(1, 7):
                         length = float_round(line[f'corte{i}'], precision_digits=6)
                         if length:
@@ -189,8 +211,19 @@ class OrdenTrabajo(models.Model):
                     remainder = float_round(line.sobra, precision_digits=6)
                     if remainder > 0:
                         outputs[line.product_id, remainder] += line.product_qty
-                for production, entries in consumption.items():
-                    order._make_transfer(warehouse_stock, production, entries, 'consumption')
+                sale_values = [order._sale_line_values(product, qty, length)
+                               for (product, length), qty in sale_cuts.items()]
+                for line in order.moldura_panel_ids:
+                    sale_values.append(order._sale_line_values(line.product_id, line.cantidad))
+                for line in order.tornilleria_accesorio_ids:
+                    sale_values.append(order._sale_line_values(line.product_id, line.cantidad))
+                # Link direct cut deliveries before sales can procure the same quantity again.
+                sale_lines = self.env['sale.order.line'].with_context(skip_procurement=True).create(sale_values)
+                cut_lines = dict(zip(sale_cuts, sale_lines))
+                for destination, entries in consumption.items():
+                    linked_lines = [cut_lines[key] if key else self.env['sale.order.line']
+                                    for key in sale_keys[destination]]
+                    order._make_transfer(warehouse_stock, destination, entries, 'consumption', sale_lines=linked_lines)
                 production_entries = defaultdict(list)
                 for (product, length), quantity in outputs.items():
                     lot = order._get_output_lot(product, length)
@@ -199,14 +232,7 @@ class OrdenTrabajo(models.Model):
                     production_entries[production].append((lot, quantity, False))
                 for production, entries in production_entries.items():
                     order._make_transfer(production, warehouse_stock, entries, 'production')
-                sale_values = [order._sale_line_values(product, qty, length)
-                               for (product, length), qty in sale_cuts.items()]
-                for line in order.moldura_panel_ids:
-                    sale_values.append(order._sale_line_values(line.product_id, line.cantidad))
-                for line in order.tornilleria_accesorio_ids:
-                    sale_values.append(order._sale_line_values(line.product_id, line.cantidad))
-                if sale_values:
-                    self.env['sale.order.line'].create(sale_values)
+                sale_lines.with_context(skip_procurement=False)._action_launch_stock_rule()
                 super(OrdenTrabajo, order).write({'state': 'confirm'})
         return True
 
@@ -226,7 +252,9 @@ class OrdenTrabajo(models.Model):
                     raise UserError(_('Desbloquee la venta antes de cancelar la orden.'))
                 if sale_lines.invoice_lines.filtered(lambda line: line.move_id.state != 'cancel'):
                     raise UserError(_('La orden tiene líneas vinculadas a facturas. Revierta esas facturas antes de cancelar.'))
-                if sale_lines.move_ids.filtered(lambda move: move.state == 'done') or any(line.qty_delivered for line in sale_lines):
+                external_moves = sale_lines.move_ids - pickings.move_ids
+                unlinked_lines = sale_lines.filtered(lambda line: not (line.move_ids & pickings.move_ids))
+                if external_moves.filtered(lambda move: move.state == 'done') or any(line.qty_delivered for line in unlinked_lines):
                     raise UserError(_('Hay productos entregados o movimientos de venta realizados. Revíselos antes de cancelar.'))
                 if pickings.move_ids.returned_move_ids.filtered(lambda move: move.state != 'cancel'):
                     raise UserError(_('Ya existen devoluciones de esta orden. Revise los movimientos para evitar una doble reversión.'))
@@ -234,7 +262,7 @@ class OrdenTrabajo(models.Model):
                     raise UserError(_('Los movimientos de la orden fueron modificados. Revise su estado antes de cancelar.'))
                 # Release only the reservations generated by this work order's sales lines.
                 sale_lines.move_ids.filtered(lambda move: move.state not in ('done', 'cancel'))._action_cancel()
-                # Put produced pieces back into production before recovering the original panels.
+                # Also support reversing transformations recorded by previous versions.
                 for role in ('production', 'consumption'):
                     for picking in pickings.filtered(lambda p: p.orden_trabajo_role == role):
                         entries_by_location = defaultdict(list)
