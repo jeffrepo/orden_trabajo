@@ -142,9 +142,25 @@ class OrdenTrabajo(models.Model):
             raise UserError(_('No se pudo completar la transferencia de la orden.'))
         return picking
 
+    def _has_metre_reference(self, unit):
+        metre = self.env.ref('uom.product_uom_meter')
+        if unit.parent_path and metre.parent_path:
+            return unit._has_common_reference(metre)
+
+        # Migrated units may lack the cached parent_path. Read the actual
+        # references without modifying the shared UoM configuration.
+        def ancestors(uom):
+            ids = set()
+            while uom and uom.id not in ids:
+                ids.add(uom.id)
+                uom = uom.relative_uom_id
+            return ids
+
+        return bool(ancestors(unit) & ancestors(metre))
+
     def _uses_length_uom(self, product):
         unit = product.uom_id
-        return unit._has_common_reference(self.env.ref('uom.product_uom_meter')) or (
+        return self._has_metre_reference(unit) or (
             unit.with_context(lang=None).name.strip().casefold() in ('m', 'metro', 'metros')
         )
 
@@ -152,7 +168,7 @@ class OrdenTrabajo(models.Model):
         """Convert a panel count and its length in metres to the product UoM."""
         unit = product.uom_id
         metre = self.env.ref('uom.product_uom_meter')
-        if unit._has_common_reference(metre):
+        if self._has_metre_reference(unit):
             return metre._compute_quantity(pieces * length, unit, round=False)
         # Older databases may have their own standalone metre unit named M.
         if unit.with_context(lang=None).name.strip().casefold() in ('m', 'metro', 'metros'):

@@ -1,7 +1,7 @@
 # Órdenes de trabajo - Odoo 19
 
 Migración del módulo original de **Odoo 10** proporcionado por el usuario.
-Versión: **19.0.2.0.2**. Autor original: Rodolfo Borstcheff.
+Versión: **19.0.2.0.3**. Autor original: Rodolfo Borstcheff.
 
 ## Dónde aparece
 
@@ -35,7 +35,9 @@ Los permisos se comprueban con el usuario actual, sin sudo en las operaciones.
   el largo configurado en el lote. Los largos y cortes se ingresan en metros.
   Las unidades lineales relacionadas con el metro usan la conversión de Odoo;
   una unidad independiente denominada M, metro o metros también se interpreta
-  como metros. Se conserva el precio de lista por unidad del producto.
+  como metros. Si la migración dejó vacía la jerarquía almacenada de una unidad
+  (`parent_path`), se consultan sus unidades de referencia sin alterar su
+  configuración. Se conserva el precio de lista por unidad del producto.
 - Los productos contados por unidades conservan el flujo anterior: consumo de
   paneles completos y producción de cortes y sobrantes en lotes por largo.
 - El nuevo flujo se aplica al confirmar órdenes. No modifica transferencias ya

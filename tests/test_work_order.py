@@ -375,3 +375,48 @@ class TestWorkOrder(TransactionCase):
         self.assertAlmostEqual(self._available(lot), 11.9)
         self.assertAlmostEqual(self._available(cut), 0)
         self.assertAlmostEqual(self._available(remainder), 0)
+
+    def _clear_uom_parent_paths(self, units):
+        # Reproduce migrated data; ORM-created units normally have this cache.
+        units.flush_recordset(['parent_path'])
+        self.cr.execute('UPDATE uom_uom SET parent_path = NULL WHERE id IN %s', [tuple(units.ids)])
+        units.invalidate_recordset(['parent_path'])
+        self.assertFalse(any(units.mapped('parent_path')))
+
+    def test_custom_m_missing_parent_path_delivers_45_metres(self):
+        unit = self.env['uom.uom'].create({'name': 'M'})
+        order, product, lot = self._create_length_order(unit, pieces=4)
+        order.write({'corte_ids': [Command.create({
+            'lote_id': lot.id, 'product_qty': 3, 'corte1': 4.5, 'corte2': 4.5,
+        })]})
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 83.3, lot_id=lot)
+        self._clear_uom_parent_paths(unit | self.env.ref('uom.product_uom_meter'))
+        self.sale.action_confirm()
+        order.confirmar()
+        self.assertAlmostEqual(self._available(lot), 38.3)
+        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 45)
+        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 45)
+        self.assertEqual(order.sale_line_ids.move_ids, order.picking_ids.move_ids)
+        order.cancelar()
+        self.assertAlmostEqual(self._available(lot), 83.3)
+        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 0)
+
+    def test_related_length_unit_missing_parent_path_preserves_conversion(self):
+        cm = self.env.ref('uom.product_uom_cm')
+        cm.active = True
+        order, product, lot = self._create_length_order(cm)
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 1190, lot_id=lot)
+        self._clear_uom_parent_paths(cm)
+        order.confirmar()
+        self.assertAlmostEqual(self._available(lot), 740)
+        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 450)
+        order.cancelar()
+        self.assertAlmostEqual(self._available(lot), 1190)
+
+    def test_missing_reference_path_does_not_turn_pieces_into_metres(self):
+        self._clear_uom_parent_paths(self.env.ref('uom.product_uom_meter'))
+        self.order.confirmar()
+        self.assertEqual(self._available(self.lot), 0)
+        self.assertEqual(self._available(self.order._buscar_lote_por_largo(self.panel.id, 6.5)), 5)
+        self.order.cancelar()
+        self.assertEqual(self._available(self.lot), 5)

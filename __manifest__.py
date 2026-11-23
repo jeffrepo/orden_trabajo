@@ -2,7 +2,7 @@
     'name': 'Órdenes de trabajo',
     'summary': 'Órdenes de trabajo, cortes e inventario en Fabricación',
     'description': 'Órdenes independientes de Fabricación con cortes por lote, ventas, cancelación con devoluciones y reporte de producción.',
-    'version': '19.0.2.0.2',
+    'version': '19.0.2.0.3',
     'category': 'Manufacturing',
     'author': 'Rodolfo Borstcheff',
     'license': 'LGPL-3',
