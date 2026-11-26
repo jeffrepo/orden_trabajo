@@ -10,8 +10,8 @@ class SaleOrderLine(models.Model):
     def _get_outgoing_incoming_moves(self, strict=True):
         outgoing, incoming = super()._get_outgoing_incoming_moves(strict=strict)
         if not strict and self.orden_trabajo_id:
-            # Work orders deliver cuts directly, without a procurement rule.
-            # Count these moves when confirming or updating the sale as well.
+            # Earlier versions delivered cuts directly, without a procurement rule.
+            # Keep counting those historical deliveries and their returns.
             direct_outgoing, direct_incoming = super()._get_outgoing_incoming_moves(strict=True)
             outgoing |= direct_outgoing.filtered(lambda move: move.picking_id.orden_trabajo_id == self.orden_trabajo_id)
             incoming |= direct_incoming.filtered(lambda move: move.picking_id.orden_trabajo_id == self.orden_trabajo_id)

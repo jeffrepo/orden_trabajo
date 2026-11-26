@@ -50,38 +50,39 @@ class TestWorkOrder(TransactionCase):
     def test_confirm_cancel_reconfirm(self):
         self.order.confirmar()
         self.assertEqual(self.order.state, 'confirm')
-        self.assertEqual(self.order.picking_ids.mapped('state'), ['done'])
-        self.assertAlmostEqual(self._available(self.lot), 2.592593)
-        self.assertAlmostEqual(self.order.picking_ids.move_ids.quantity, 2.407407)
-        self.assertAlmostEqual(self.order.picking_ids.move_ids.orden_trabajo_metros, 32.5)
-        self.assertFalse(self.order._buscar_lote_por_largo(self.panel.id, 6.5))
-        self.assertFalse(self.order._buscar_lote_por_largo(self.panel.id, 7))
+        self.assertEqual(self.order.picking_ids.mapped('state'), ['done', 'done'])
+        self.assertEqual(self._available(self.lot), 0)
+        cut = self.order._buscar_lote_por_largo(self.panel.id, 6.5)
+        remainder = self.order._buscar_lote_por_largo(self.panel.id, 7)
+        self.assertEqual(self._available(cut), 5)
+        self.assertEqual(self._available(remainder), 5)
         self.assertEqual(len(self.order.sale_line_ids), 3)
         self.assertEqual(self.original_sale_line.product_uom_qty, 9)
         with self.assertRaises(UserError):
             self.order.confirmar()
-        self.assertEqual(len(self.order.picking_ids), 1)
+        self.assertEqual(len(self.order.picking_ids), 2)
         self.order.cancelar()
         self.assertEqual(self.order.state, 'draft')
-        self.assertAlmostEqual(self._available(self.lot), 5)
+        self.assertEqual(self._available(self.lot), 5)
+        self.assertEqual(self._available(cut), 0)
+        self.assertEqual(self._available(remainder), 0)
         self.assertFalse(self.order.sale_line_ids)
         self.assertEqual(self.sale.order_line, self.original_sale_line)
-        self.assertEqual(len(self.order.picking_ids), 2)
+        self.assertEqual(len(self.order.picking_ids), 4)
         self.assertTrue(self.order.picking_ids.filtered(lambda p: p.orden_trabajo_role == 'return').move_ids.origin_returned_move_id)
         self.order.confirmar()
         self.assertEqual(self.order.confirmation_number, 2)
-        self.assertEqual(len(self.order.picking_ids), 3)
+        self.assertEqual(len(self.order.picking_ids), 6)
         self.assertEqual(len(self.order.sale_line_ids), 3)
 
     def test_same_length_cut_and_remainder_are_not_both_sold(self):
         self.lot.largo = 14
         self.order.corte_ids.corte1 = 7
         self.order.confirmar()
-        self.assertAlmostEqual(self._available(self.lot), 2.5)
-        self.assertFalse(self.order._buscar_lote_por_largo(self.panel.id, 7))
+        output = self.order._buscar_lote_por_largo(self.panel.id, 7)
+        self.assertEqual(self._available(output), 10)
         sold = self.order.sale_line_ids.filtered(lambda line: line.product_id == self.panel)
-        self.assertEqual(sold.product_uom_qty, 2.5)
-        self.assertEqual(self.order.corte_ids.sobra, 7)
+        self.assertEqual(sold.product_uom_qty, 5)
 
     def test_selected_lots_and_multiple_products(self):
         other = self.env['product.product'].create({'name': 'Segundo panel', 'is_storable': True, 'tracking': 'lot'})
@@ -89,17 +90,18 @@ class TestWorkOrder(TransactionCase):
         self.env['stock.quant']._update_available_quantity(other, self.stock, 2, lot_id=lot)
         self.order.write({'corte_ids': [Command.create({'lote_id': lot.id, 'product_qty': 2, 'corte1': 3, 'corte2': 3})]})
         self.order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 0.8)
+        self.assertEqual(self._available(lot), 0)
+        self.assertEqual(self._available(self.order._buscar_lote_por_largo(other.id, 3)), 4)
+        self.assertEqual(self._available(self.order._buscar_lote_por_largo(other.id, 4)), 2)
         line = self.order.sale_line_ids.filtered(lambda line: line.product_id == other)
         self.assertIn('Segundo panel', line.name)
-        self.assertAlmostEqual(line.product_uom_qty, 1.2)
-        self.assertAlmostEqual(line.qty_delivered, 1.2)
+        self.assertEqual(line.product_uom_qty, 4)
         self.order.cancelar()
-        self.assertAlmostEqual(self._available(lot), 2)
-        self.assertAlmostEqual(self._available(self.lot), 5)
+        self.assertEqual(self._available(lot), 2)
+        self.assertEqual(self._available(self.lot), 5)
 
     def test_confirmation_failure_rolls_back_all_effects(self):
-        self.order.corte_ids.product_qty = 11
+        self.order.corte_ids.product_qty = 6
         with self.assertRaises(UserError):
             self.order.confirmar()
         self.assertEqual(self.order.state, 'draft')
@@ -112,34 +114,15 @@ class TestWorkOrder(TransactionCase):
             self.order.confirmar()
         self.assertFalse(self.order.picking_ids)
 
-    def _record_legacy_transformation(self, order):
-        """Fixture for already confirmed orders from versions <= 19.0.2.0.3."""
-        line = order.corte_ids.ensure_one()
-        product = line.product_id
-        metric = order._uses_length_uom(product)
-        super(OrdenTrabajo, order).write({'confirmation_number': 1})
-        production = product.property_stock_production
-        order._make_transfer(self.stock, production, [(line.lote_id,
-            line.product_qty * line.lote_id.largo if metric else line.product_qty, False)], 'consumption')
-        entries = []
-        for length in (line.corte1, line.sobra):
-            lot = order._get_output_lot(product, length)
-            entries.append((lot, line.product_qty * length if metric else line.product_qty, False))
-        order._make_transfer(production, self.stock, entries, 'production')
-        self.env['sale.order.line'].create(order._sale_line_values(
-            product, line.product_qty * line.corte1 if metric else line.product_qty, line.corte1,
-        ))
-        super(OrdenTrabajo, order).write({'state': 'confirm'})
-
     def test_cancellation_shortage_keeps_confirmation_intact(self):
-        self._record_legacy_transformation(self.order)
+        self.order.confirmar()
         lot = self.order._buscar_lote_por_largo(self.panel.id, 6.5)
         self.env['stock.quant']._update_available_quantity(self.panel, self.stock, -1, lot_id=lot)
         with self.assertRaises(UserError):
             self.order.cancelar()
         self.assertEqual(self.order.state, 'confirm')
         self.assertEqual(len(self.order.picking_ids), 2)
-        self.assertEqual(len(self.order.sale_line_ids), 1)
+        self.assertEqual(len(self.order.sale_line_ids), 3)
         self.assertEqual(self._available(self.lot), 0)
 
     def test_cancel_on_confirmed_sale_zeroes_only_generated_lines(self):
@@ -150,7 +133,7 @@ class TestWorkOrder(TransactionCase):
         self.assertEqual(lines.mapped('product_uom_qty'), [0, 0, 0])
         self.assertEqual(self.original_sale_line.product_uom_qty, 9)
         self.assertFalse(lines.move_ids.filtered(lambda m: m.state not in ('cancel', 'done')))
-        self.assertAlmostEqual(self._available(self.lot), 5)
+        self.assertEqual(self._available(self.lot), 5)
 
     def test_invoiced_lines_block_cancellation(self):
         self.order.confirmar()
@@ -164,20 +147,24 @@ class TestWorkOrder(TransactionCase):
         with self.assertRaises(UserError):
             self.order.cancelar()
         self.assertEqual(self.order.state, 'confirm')
-        self.assertEqual(len(self.order.picking_ids), 1)
+        self.assertEqual(len(self.order.picking_ids), 2)
         self.assertTrue(invoice.exists())
 
     def test_delivered_products_block_cancellation(self):
         self.sale.action_confirm()
         self.order.confirmar()
         line = self.order.sale_line_ids.filtered(lambda line: line.product_id == self.panel)
-        extra = self.order._make_transfer(self.stock, self.partner.property_stock_customer,
-            [(self.lot, 1, False)], 'consumption', sale_lines=[line])
-        extra.orden_trabajo_id = False
+        moves = line.move_ids.filtered(lambda move: move.state not in ('done', 'cancel'))
+        moves._action_assign()
+        self.assertTrue(moves)
+        self.assertEqual(sum(moves.mapped('quantity')), 5)
+        moves.picked = True
+        moves._action_done()
         with self.assertRaises(UserError):
             self.order.cancelar()
         self.assertEqual(self.order.state, 'confirm')
-        self.assertEqual(len(self.order.picking_ids), 1)
+        self.assertEqual(len(self.order.picking_ids), 2)
+        self.assertEqual(line.product_uom_qty, 5)
 
     def test_same_product_with_two_source_lots_keeps_lot_identity(self):
         lot = self.env['stock.lot'].create({
@@ -188,11 +175,11 @@ class TestWorkOrder(TransactionCase):
         self.order.write({'corte_ids': [Command.create({'lote_id': lot.id, 'product_qty': 2, 'corte1': 4})]})
         self.order.confirmar()
         consumed = self.order.picking_ids.filtered(lambda p: p.orden_trabajo_role == 'consumption').move_line_ids
-        self.assertAlmostEqual(sum(consumed.filtered(lambda ml: ml.lot_id == self.lot).mapped('quantity')), 2.407407)
-        self.assertAlmostEqual(sum(consumed.filtered(lambda ml: ml.lot_id == lot).mapped('quantity')), 0.8)
+        self.assertEqual(sum(consumed.filtered(lambda ml: ml.lot_id == self.lot).mapped('quantity')), 5)
+        self.assertEqual(sum(consumed.filtered(lambda ml: ml.lot_id == lot).mapped('quantity')), 2)
         self.order.cancelar()
-        self.assertAlmostEqual(self._available(self.lot), 5)
-        self.assertAlmostEqual(self._available(lot), 2)
+        self.assertEqual(self._available(self.lot), 5)
+        self.assertEqual(self._available(lot), 2)
 
     def test_confirmed_order_cannot_be_edited_or_deleted(self):
         self.order.confirmar()
@@ -295,43 +282,37 @@ class TestWorkOrder(TransactionCase):
         self.assertAlmostEqual(order.corte_ids.total, 4.5)
         self.assertAlmostEqual(order.corte_ids.sobra, 7.4)
         order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 7.4)
-        self.assertEqual(order.picking_ids.mapped('state'), ['done'])
-        self.assertEqual(order.picking_ids.move_line_ids.lot_id, lot)
-        self.assertAlmostEqual(order.picking_ids.move_ids.quantity, 4.5)
-        self.assertEqual(order.picking_ids.location_dest_id.usage, 'customer')
-        self.assertFalse(order._buscar_lote_por_largo(product.id, 4.5))
-        self.assertFalse(order._buscar_lote_por_largo(product.id, 7.4))
+        cut = order._buscar_lote_por_largo(product.id, 4.5)
+        remainder = order._buscar_lote_por_largo(product.id, 7.4)
+        self.assertAlmostEqual(self._available(lot), 0)
+        self.assertAlmostEqual(self._available(cut), 4.5)
+        self.assertAlmostEqual(self._available(remainder), 7.4)
         self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 4.5)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 4.5)
         self.assertEqual(order.sale_line_ids.product_uom_id, metre)
         self.assertEqual(order.sale_line_ids.price_unit, 25)
-        self.sale.action_confirm()
-        self.assertEqual(order.sale_line_ids.move_ids, order.picking_ids.move_ids)
-        self.assertAlmostEqual(self._available(lot), 7.4)
         order.cancelar()
         self.assertAlmostEqual(self._available(lot), 11.9)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 0)
-        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 0)
+        self.assertAlmostEqual(self._available(cut), 0)
+        self.assertAlmostEqual(self._available(remainder), 0)
+        self.assertFalse(order.sale_line_ids)
         order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 7.4)
-        self.assertEqual(len(order.picking_ids), 3)
-        self.assertAlmostEqual(sum(order.sale_line_ids.mapped('qty_delivered')), 4.5)
+        self.assertAlmostEqual(self._available(remainder), 7.4)
 
     def test_custom_m_unit_multiple_panels(self):
         custom_m = self.env['uom.uom'].create({'name': 'M'})
         order, product, lot = self._create_length_order(custom_m, pieces=3, cut1=2, cut2=2.5)
         self.env['stock.quant']._update_available_quantity(product, self.stock, 35.7, lot_id=lot)
         order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 22.2)
-        self.assertEqual(order.picking_ids.move_line_ids.lot_id, lot)
-        self.assertEqual(sorted(order.picking_ids.move_ids.mapped('quantity')), [6, 7.5])
+        self.assertAlmostEqual(self._available(lot), 0)
+        self.assertAlmostEqual(self._available(order._buscar_lote_por_largo(product.id, 2)), 6)
+        self.assertAlmostEqual(self._available(order._buscar_lote_por_largo(product.id, 2.5)), 7.5)
+        self.assertAlmostEqual(self._available(order._buscar_lote_por_largo(product.id, 7.4)), 22.2)
         self.assertEqual(sorted(order.sale_line_ids.mapped('product_uom_qty')), [6, 7.5])
-        self.assertEqual(sorted(order.sale_line_ids.mapped('qty_delivered')), [6, 7.5])
-        self.assertFalse(order.picking_ids.filtered(lambda picking: picking.orden_trabajo_role == 'production'))
+        self.assertAlmostEqual(sum(order.picking_ids.filtered(
+            lambda picking: picking.orden_trabajo_role == 'production',
+        ).move_ids.mapped('quantity')), 35.7)
         order.cancelar()
         self.assertAlmostEqual(self._available(lot), 35.7)
-        self.assertFalse(order.sale_line_ids)
 
     def test_length_uom_conversion_and_confirmed_sale_reversal(self):
         cm = self.env.ref('uom.product_uom_cm')
@@ -340,173 +321,173 @@ class TestWorkOrder(TransactionCase):
         self.env['stock.quant']._update_available_quantity(product, self.stock, 1190, lot_id=lot)
         self.sale.action_confirm()
         order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 740)
+        remainder = order._buscar_lote_por_largo(product.id, 7.4)
+        self.assertAlmostEqual(self._available(lot), 0)
+        self.assertAlmostEqual(self._available(remainder), 740)
         self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 450)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 450)
         self.assertEqual(order.sale_line_ids.product_uom_id, cm)
-        self.assertEqual(order.sale_line_ids.move_ids, order.picking_ids.move_ids)
         order.cancelar()
         self.assertAlmostEqual(self._available(lot), 1190)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 0)
+        self.assertAlmostEqual(self._available(remainder), 0)
         self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 0)
 
-    def test_all_six_cuts_only_require_used_stock(self):
-        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_meter'))
-        order.corte_ids.write({f'corte{i}': 0.75 for i in range(1, 7)})
-        # The selected lot need not have another full 11.90 m panel available.
-        self.env['stock.quant']._update_available_quantity(product, self.stock, 4.5, lot_id=lot)
-        order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 0)
-        self.assertEqual(len(order.picking_ids.move_ids), 6)
-        self.assertAlmostEqual(sum(order.picking_ids.move_ids.mapped('quantity')), 4.5)
-        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 4.5)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 4.5)
-        self.assertAlmostEqual(order.corte_ids.sobra, 7.4)
-        order.cancelar()
-        self.assertAlmostEqual(self._available(lot), 4.5)
-
-    def test_direct_cuts_shortage_rolls_back_partial_delivery(self):
-        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_meter'), cut1=2, cut2=2.5)
-        self.env['stock.quant']._update_available_quantity(product, self.stock, 4, lot_id=lot)
-        self.sale.action_confirm()
-        with self.assertRaises(UserError):
-            order.confirmar()
-        self.assertEqual(order.state, 'draft')
-        self.assertEqual(order.confirmation_number, 0)
-        self.assertFalse(order.sale_line_ids)
-        self.assertFalse(order.picking_ids)
-        self.assertAlmostEqual(self._available(lot), 4)
-
-    def test_previous_metre_transformations_can_still_be_cancelled(self):
-        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_meter'))
-        self.env['stock.quant']._update_available_quantity(product, self.stock, 11.9, lot_id=lot)
-        self._record_legacy_transformation(order)
-        self.assertAlmostEqual(self._available(lot), 0)
-        cut = order._buscar_lote_por_largo(product.id, 4.5)
-        remainder = order._buscar_lote_por_largo(product.id, 7.4)
-        self.assertAlmostEqual(self._available(cut), 4.5)
-        self.assertAlmostEqual(self._available(remainder), 7.4)
-        order.cancelar()
-        self.assertAlmostEqual(self._available(lot), 11.9)
-        self.assertAlmostEqual(self._available(cut), 0)
-        self.assertAlmostEqual(self._available(remainder), 0)
-
     def _clear_uom_parent_paths(self, units):
-        # Reproduce migrated data; ORM-created units normally have this cache.
         units.flush_recordset(['parent_path'])
         self.cr.execute('UPDATE uom_uom SET parent_path = NULL WHERE id IN %s', [tuple(units.ids)])
         units.invalidate_recordset(['parent_path'])
-        self.assertFalse(any(units.mapped('parent_path')))
 
-    def test_custom_m_missing_parent_path_delivers_45_metres(self):
-        unit = self.env['uom.uom'].create({'name': 'M'})
-        order, product, lot = self._create_length_order(unit, pieces=4)
+    def test_original_example_consumes_five_and_produces_seven_three_two(self):
+        unit = self.env['uom.uom'].create({'name': 'UNI'})
+        order, product, lot = self._create_length_order(unit, pieces=3)
         order.write({'corte_ids': [Command.create({
-            'lote_id': lot.id, 'product_qty': 3, 'corte1': 4.5, 'corte2': 4.5,
+            'lote_id': lot.id, 'product_qty': 2, 'corte1': 4.5, 'corte2': 4.5,
         })]})
-        self.env['stock.quant']._update_available_quantity(product, self.stock, 83.3, lot_id=lot)
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 5, lot_id=lot)
         self._clear_uom_parent_paths(unit | self.env.ref('uom.product_uom_meter'))
-        self.sale.action_confirm()
+        self.env['decimal.precision'].search([('name', '=', 'Product Unit')]).digits = 2
+        self.env['uom.uom'].invalidate_model(['rounding'])
         order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 38.3)
-        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 45)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 45)
-        self.assertEqual(order.sale_line_ids.move_ids, order.picking_ids.move_ids)
+        for line, remainder in zip(order.corte_ids, (7.4, 2.9)):
+            self.assertAlmostEqual(line.sobra, remainder)
+        self.assertAlmostEqual(self._available(lot), 0)
+        consumed = order.picking_ids.filtered(lambda p: p.orden_trabajo_role == 'consumption')
+        produced = order.picking_ids.filtered(lambda p: p.orden_trabajo_role == 'production')
+        self.assertEqual(sorted(consumed.move_ids.mapped('quantity')), [2, 3])
+        self.assertEqual(consumed.location_dest_id.usage, 'production')
+        self.assertEqual(produced.location_dest_id, self.stock)
+        for length, pieces in ((4.5, 7), (7.4, 3), (2.9, 2)):
+            output = order._buscar_lote_por_largo(product.id, length)
+            self.assertTrue(output)
+            self.assertAlmostEqual(self._available(output), pieces)
+        self.assertAlmostEqual(sum(consumed.move_ids.mapped('orden_trabajo_metros')), 59.5)
+        self.assertAlmostEqual(sum(produced.move_ids.mapped('orden_trabajo_metros')), 59.5)
+        self.assertEqual(order.sale_line_ids.product_uom_qty, 7)
+        self.assertEqual(order.sale_line_ids.qty_delivered, 0)
         order.cancelar()
-        self.assertAlmostEqual(self._available(lot), 83.3)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 0)
+        self.assertAlmostEqual(self._available(lot), 5)
+        for length in (4.5, 7.4, 2.9):
+            self.assertAlmostEqual(self._available(order._buscar_lote_por_largo(product.id, length)), 0)
+        self.assertFalse(order.sale_line_ids)
 
-    def test_related_length_unit_missing_parent_path_preserves_conversion(self):
+    def test_reuses_matching_lots_and_preserves_their_existing_stock(self):
+        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_unit'), pieces=3)
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 3, lot_id=lot)
+        cut = order._get_output_lot(product, 4.5)
+        remainder = order._get_output_lot(product, 7.4)
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 2, lot_id=cut)
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 4, lot_id=remainder)
+        before = self.env['stock.lot'].search([('product_id', '=', product.id)])
+        order.confirmar()
+        self.assertEqual(self.env['stock.lot'].search([('product_id', '=', product.id)]), before)
+        self.assertEqual(self._available(cut), 5)
+        self.assertEqual(self._available(remainder), 7)
+        order.cancelar()
+        self.assertEqual(self._available(lot), 3)
+        self.assertEqual(self._available(cut), 2)
+        self.assertEqual(self._available(remainder), 4)
+
+    def test_output_lot_must_match_product_and_company(self):
+        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_unit'))
+        other_company = self.env['res.company'].create({'name': 'Compañía de otro sobrante'})
+        wrong_product = self.env['stock.lot'].create({
+            'name': 'SOBRA-OTRO-PRODUCTO', 'product_id': self.panel.id,
+            'company_id': self.env.company.id, 'largo': 7.4,
+        })
+        wrong_company = self.env['stock.lot'].create({
+            'name': 'SOBRA-OTRA-COMPANIA', 'product_id': product.id,
+            'company_id': other_company.id, 'largo': 7.4,
+        })
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 1, lot_id=lot)
+        order.confirmar()
+        remainder = order._buscar_lote_por_largo(product.id, 7.4)
+        self.assertTrue(remainder)
+        self.assertNotIn(remainder, wrong_product | wrong_company)
+        self.assertEqual(remainder.company_id, order.company_id)
+        self.assertEqual(remainder.product_id, product)
+        self.assertEqual(self._available(remainder), 1)
+
+    def test_all_six_cuts_without_remainder(self):
+        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_unit'), pieces=2)
+        lot.largo = 6
+        order.corte_ids.write({f'corte{i}': 1 for i in range(1, 7)})
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 2, lot_id=lot)
+        order.confirmar()
+        self.assertEqual(order.corte_ids.sobra, 0)
+        self.assertEqual(self._available(lot), 0)
+        self.assertEqual(self._available(order._buscar_lote_por_largo(product.id, 1)), 12)
+        self.assertFalse(order._buscar_lote_por_largo(product.id, 0))
+        self.assertEqual(order.sale_line_ids.product_uom_qty, 12)
+        order.cancelar()
+        self.assertEqual(self._available(lot), 2)
+
+    def _record_previous_direct_delivery(self, order, quantity):
+        """Reproduce persisted direct/fractional deliveries from 19.0.2.0.2–4."""
+        line = order.corte_ids.ensure_one()
+        super(OrdenTrabajo, order).write({'confirmation_number': 1})
+        sale_line = self.env['sale.order.line'].with_context(skip_procurement=True).create(
+            order._sale_line_values(line.product_id, quantity, line.corte1))
+        order._make_transfer(self.stock, self.partner.property_stock_customer,
+            [(line.lote_id, quantity, False)], 'consumption', sale_lines=[sale_line],
+            metres=[line.product_qty * line.total])
+        super(OrdenTrabajo, order).write({'state': 'confirm'})
+        return sale_line
+
+    def test_previous_fractional_order_can_be_cancelled_then_reconfirmed(self):
+        order, product, lot = self._create_length_order(self.env['uom.uom'].create({'name': 'UNI'}))
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 5, lot_id=lot)
+        sale_line = self._record_previous_direct_delivery(order, 0.378151)
+        original = order.picking_ids.move_ids
+        self.assertAlmostEqual(self._available(lot), 4.621849)
+        self.sale.action_confirm()
+        self.assertEqual(sale_line.move_ids, original)
+        self.assertAlmostEqual(sale_line.qty_delivered, 0.378151)
+        lot.largo = 12
+        order.cancelar()
+        self.assertAlmostEqual(self._available(lot), 5)
+        returned = order.picking_ids.filtered(lambda p: p.orden_trabajo_role == 'return').move_ids
+        self.assertAlmostEqual(returned.quantity, 0.378151)
+        self.assertAlmostEqual(returned.orden_trabajo_metros, 4.5)
+        self.assertAlmostEqual(sale_line.product_uom_qty, 0)
+        self.assertAlmostEqual(sale_line.qty_delivered, 0)
+        lot.largo = 11.9
+        order.confirmar()
+        cycle = order.picking_ids.filtered(lambda p: p.orden_trabajo_cycle == 2)
+        self.assertEqual(len(cycle), 2)
+        self.assertEqual(cycle.filtered(lambda p: p.orden_trabajo_role == 'consumption').move_ids.quantity, 1)
+        self.assertEqual(cycle.filtered(lambda p: p.orden_trabajo_role == 'production').move_ids.mapped('quantity'), [1, 1])
+        source_quants = self.env['stock.quant'].search([('lot_id', '=', lot.id), ('location_id', '=', self.stock.id)])
+        self.assertAlmostEqual(sum(source_quants.mapped('quantity')), 4)
+        self.assertEqual(self._available(order._buscar_lote_por_largo(product.id, 7.4)), 1)
+        order.cancelar()
+        self.assertEqual(self._available(lot), 5)
+
+    def test_previous_direct_metre_delivery_can_be_cancelled(self):
+        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_meter'))
+        self.env['stock.quant']._update_available_quantity(product, self.stock, 11.9, lot_id=lot)
+        self._record_previous_direct_delivery(order, 4.5)
+        self.assertAlmostEqual(self._available(lot), 7.4)
+        order.cancelar()
+        self.assertAlmostEqual(self._available(lot), 11.9)
+        self.assertFalse(order.sale_line_ids)
+
+    def test_missing_parent_path_preserves_metre_conversion(self):
         cm = self.env.ref('uom.product_uom_cm')
         cm.active = True
         order, product, lot = self._create_length_order(cm)
         self.env['stock.quant']._update_available_quantity(product, self.stock, 1190, lot_id=lot)
         self._clear_uom_parent_paths(cm)
         order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 740)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 450)
+        self.assertEqual(self._available(lot), 0)
+        self.assertEqual(self._available(order._buscar_lote_por_largo(product.id, 4.5)), 450)
+        self.assertEqual(self._available(order._buscar_lote_por_largo(product.id, 7.4)), 740)
         order.cancelar()
-        self.assertAlmostEqual(self._available(lot), 1190)
+        self.assertEqual(self._available(lot), 1190)
 
-    def test_missing_reference_path_does_not_turn_pieces_into_metres(self):
-        self._clear_uom_parent_paths(self.env.ref('uom.product_uom_meter'))
-        self.order.confirmar()
-        self.assertAlmostEqual(self._available(self.lot), 2.592593)
-        self.assertAlmostEqual(self.order.picking_ids.move_ids.quantity, 2.407407)
-        self.order.cancelar()
-        self.assertAlmostEqual(self._available(self.lot), 5)
-
-    def test_uni_fraction_metres_and_reversal_ignore_later_length_changes(self):
-        unit = self.env['uom.uom'].create({'name': 'UNI'})
-        order, product, lot = self._create_length_order(unit)
-        self.env['stock.quant']._update_available_quantity(product, self.stock, 5, lot_id=lot)
-        self._clear_uom_parent_paths(unit)
-        order.confirmar()
-        move = order.picking_ids.move_ids
-        self.assertAlmostEqual(move.product_uom_qty, 0.378151)
-        self.assertAlmostEqual(move.quantity, 0.378151)
-        self.assertEqual(move.product_uom, unit)
-        self.assertAlmostEqual(move.orden_trabajo_metros, 4.5)
-        self.assertAlmostEqual(order.corte_ids.sobra, 7.4)
-        self.assertAlmostEqual(self._available(lot), 4.621849)
-        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 0.378151)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 0.378151)
-        self.assertFalse(order._buscar_lote_por_largo(product.id, 7.4))
-        self.sale.action_confirm()
-        self.assertEqual(order.sale_line_ids.move_ids, move)
-        lot.largo = 12
-        order.cancelar()
-        returned = order.picking_ids.filtered(lambda p: p.orden_trabajo_role == 'return').move_ids
-        self.assertAlmostEqual(returned.quantity, 0.378151)
-        self.assertAlmostEqual(returned.orden_trabajo_metros, 4.5)
-        self.assertEqual(returned.origin_returned_move_id, move)
-        self.assertAlmostEqual(self._available(lot), 5)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 0)
-        view = self.env['stock.picking'].get_view(view_id=self.env.ref('stock.view_picking_form').id)
-        arch = etree.fromstring(view['arch'])
-        self.assertTrue(arch.xpath("//field[@name='move_ids']/list/field[@name='orden_trabajo_metros']"))
-
-    def test_same_cut_from_different_lengths_sums_fractions_not_panels(self):
-        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_unit'), pieces=3)
-        second = self.env['stock.lot'].create({
-            'name': 'PANEL-9', 'product_id': product.id, 'company_id': self.env.company.id, 'largo': 9,
-        })
-        order.write({'corte_ids': [Command.create({'lote_id': second.id, 'product_qty': 2, 'corte1': 4.5})]})
-        self.env['stock.quant']._update_available_quantity(product, self.stock, 3, lot_id=lot)
-        self.env['stock.quant']._update_available_quantity(product, self.stock, 2, lot_id=second)
-        self.sale.action_confirm()
-        order.confirmar()
-        self.assertAlmostEqual(self._available(lot), 1.865546)
-        self.assertAlmostEqual(self._available(second), 1)
-        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 2.134454)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 2.134454)
-        self.assertAlmostEqual(sum(order.picking_ids.move_ids.mapped('orden_trabajo_metros')), 22.5)
-        order.cancelar()
-        self.assertAlmostEqual(self._available(lot), 3)
-        self.assertAlmostEqual(self._available(second), 2)
-
-    def test_full_panel_cumulative_rounding_leaves_no_fraction(self):
-        order, product, lot = self._create_length_order(self.env.ref('uom.product_uom_unit'), cut1=1, cut2=1)
-        lot.largo = 3
-        order.corte_ids.corte3 = 1
-        self.env['stock.quant']._update_available_quantity(product, self.stock, 1, lot_id=lot)
-        order.confirmar()
-        self.assertEqual(sorted(order.picking_ids.move_ids.mapped('quantity')), [0.333333, 0.333333, 0.333334])
-        self.assertAlmostEqual(self._available(lot), 0)
-        self.assertAlmostEqual(order.sale_line_ids.product_uom_qty, 1)
-        self.assertAlmostEqual(order.sale_line_ids.qty_delivered, 1)
-        self.assertAlmostEqual(order.corte_ids.sobra, 0)
-        order.cancelar()
-        self.assertAlmostEqual(self._available(lot), 1)
-
-    def test_fraction_requires_sufficient_precision_and_positive_length(self):
+    def test_positive_lot_length_is_required_before_any_movement(self):
         self.lot.largo = 0
         with self.assertRaisesRegex(UserError, 'largo positivo'):
             self.order.confirmar()
-        self.lot.largo = 13.5
-        self.env['decimal.precision'].search([('name', '=', 'Product Unit')]).digits = 2
-        with self.assertRaisesRegex(UserError, '6 decimales'):
-            self.order.confirmar()
+        self.assertEqual(self.order.state, 'draft')
         self.assertFalse(self.order.picking_ids)
         self.assertFalse(self.order.sale_line_ids)
-        self.assertEqual(self._available(self.lot), 5)
+

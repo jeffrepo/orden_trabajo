@@ -1,7 +1,7 @@
 # Órdenes de trabajo - Odoo 19
 
 Migración del módulo original de **Odoo 10** proporcionado por el usuario.
-Versión: **19.0.2.0.4**. Autor original: Rodolfo Borstcheff.
+Versión: **19.0.2.0.5**. Autor original: Rodolfo Borstcheff.
 
 ## Dónde aparece
 
@@ -19,54 +19,49 @@ Los permisos se comprueban con el usuario actual, sin sudo en las operaciones.
 - Nombre/secuencia, fechas, venta, tipo de albarán, estados y tres pestañas.
 - Campos de producción, observaciones, revisión y autorización identificados en
   la captura/PDF y en la extensión antigua de GDOMEX.
-- Para productos medidos en metros, Confirmar da salida únicamente a
-  `cantidad de paneles × (corte1 + corte2 + … + corte6)` desde el lote elegido
-  hacia la ubicación del cliente de la venta. Cada corte registra su movimiento.
-  No crea lotes ni movimientos de entrada para cortes o sobrantes.
-- Ejemplo: con 11.90 M disponibles y un panel con corte de 4.50 m, salen 4.50 M
-  y quedan 7.40 M en el mismo lote. La columna Sobra sigue mostrando
-  `largo del panel − suma de cortes` por panel; no modifica el largo del lote.
-- Los cortes se agregan a la venta como ya despachados, vinculados a esa única
-  salida. Confirmar la venta antes o después de la orden no vuelve a descontarlos.
-  Molduras y accesorios mantienen su flujo normal de venta y entrega.
-  Las líneas previas de la venta no se modifican.
-- Los paneles son productos almacenables con seguimiento por lotes. En Cortes,
-  **Cantidad de paneles** es el número de piezas y **Largo del panel (m)** muestra
-  el largo configurado en el lote. Los largos y cortes se ingresan en metros.
-  Las unidades lineales relacionadas con el metro usan la conversión de Odoo;
-  una unidad independiente denominada M, metro o metros también se interpreta
-  como metros. Si la migración dejó vacía la jerarquía almacenada de una unidad
-  (`parent_path`), se consultan sus unidades de referencia sin alterar su
-  configuración. Se conserva el precio de lista por unidad del producto.
-- Para paneles en **UNI**, la salida descuenta únicamente la fracción utilizada:
-  `paneles × metros cortados / largo del panel del lote`. No consume paneles
-  completos ni crea entradas de cortes o sobrantes. Cada lote usa su propio largo.
-  Ejemplo: 5 UNI de 11.90 m, cortando una pieza de 4.50 m, descuentan **0.378151 UNI**;
-  quedan **4.621849 UNI** en el mismo lote. **Sobra sigue mostrando 7.40 m** por panel.
-- Las columnas Demanda y Cantidad del albarán conservan UNI. La nueva columna
-  **Metros cortados** muestra 4.50 en ese ejemplo y también aparece en la reversión.
-  Las líneas generadas en la venta usan la misma fracción de UNI y quedan entregadas,
-  manteniendo el precio por UNI; confirmar la venta no genera una segunda salida.
-- Para fracciones de panel se requieren al menos **6 decimales en Product Unit**.
-  Se usa la precisión existente, sin cambiarla automáticamente. El redondeo se
-  acumula por línea para que varios cortes que completan un panel descuenten
-  exactamente 1 UNI. Los metros son la medida solicitada; las UNI se redondean
-  a la precisión del inventario. Los saldos fraccionarios representan longitud
-  equivalente, no un recuento de paneles físicamente enteros.
-- El nuevo flujo se aplica al confirmar órdenes. No modifica transferencias ya
-  realizadas; Cancelar revierte las cantidades registradas en ellas, también
-  cuando pertenecen al flujo anterior. Las transferencias antiguas no reciben
-  valores de metros inferidos ni se recalculan al cambiar el largo del lote.
+- Confirmar consume **paneles completos** del lote seleccionado, desde el
+  almacén de la venta hacia la ubicación de producción del producto.
+- Luego ingresa al almacén los **cortes y sobrantes**. Busca lotes por producto,
+  largo y compañía; reutiliza el existente o crea uno con el largo correspondiente.
+  Son transferencias de Producción al almacén, no ajustes manuales de inventario.
+- En UNI, la cantidad de cada corte o sobrante es el número de paneles de su
+  línea. Para 3 paneles de 11.90 m con un corte de 4.50 m y otros 2 con dos cortes
+  de 4.50 m: consume **5 UNI** del lote de 11.90 m; ingresa **7 UNI de 4.50 m**,
+  **3 UNI de 7.40 m** y **2 UNI de 2.90 m**. Se conservan los 59.50 m totales.
+- **Sobra** conserva su cálculo: `largo del panel − suma de los seis cortes`, por
+  panel. Los sobrantes cero no generan lotes ni movimientos. Si un corte y una
+  sobra tienen igual largo, se suman en inventario, pero solo el corte se vende.
+- Agrega a la venta únicamente los cortes solicitados, molduras y accesorios.
+  Los cortes quedan en inventario y pendientes de la entrega normal de la venta,
+  como en el flujo original. No se marcan despachados al confirmar la orden de
+  trabajo. Las líneas previas de la venta se conservan.
+- **Cantidad de paneles** indica piezas. Los largos y cortes se ingresan en
+  metros. Para UNI se mueven piezas completas; para M u otras unidades lineales,
+  las cantidades se convierten a la unidad del producto, incluyendo el largo
+  completo consumido y todos los cortes y sobrantes producidos. No se cambia la
+  unidad ni el precio de lista del producto.
+- Se mantiene compatibilidad con unidades independientes M/metro/metros y
+  UNI/unidades, y con jerarquías de unidades incompletas tras una migración.
+  Ya no se exige una precisión mínima de seis decimales para consumir paneles.
+- La columna **Metros representados** muestra la longitud total de los paneles,
+  cortes o sobrantes del movimiento, manteniendo la cantidad en la unidad del
+  producto. Los valores históricos se conservan sin reinterpretarlos.
+- El flujo restaurado se aplica al confirmar órdenes. No reescribe movimientos
+  ya realizados. Cancelar revierte las cantidades originalmente registradas,
+  incluidas las salidas directas en metros y las fracciones de UNI de versiones
+  anteriores; después puede reconfirmarse con el flujo restaurado.
 - Totales y sobrantes se recalculan también al importar o editar por API.
 - Cada confirmación registra sus transferencias y líneas comerciales. El botón
   Transferencias permite consultar tanto operaciones originales como reversiones.
 
 ## Cancelación automática
 
-Cancelar devuelve al lote original la cantidad de M o fracción de UNI registrada, mediante
-movimientos de devolución vinculados a la salida. La cantidad entregada en la
-venta vuelve a cero. Para órdenes del flujo anterior, devuelve primero los
-cortes y sobrantes a producción y después recupera los paneles originales.
+Cancelar retira primero los cortes y sobrantes del almacén hacia producción y
+luego devuelve los paneles originales a sus lotes, mediante movimientos inversos
+vinculados a los anteriores. Libera antes las reservas de entrega generadas por
+las líneas de esta orden. También puede revertir salidas directas o fraccionarias
+históricas según sus movimientos guardados, aunque se haya cambiado el largo del
+lote después de confirmar.
 Elimina las líneas generadas en presupuestos. Si la venta ya está confirmada,
 Odoo exige conservar las líneas: su cantidad se deja en cero y se cancelan sus
 movimientos de entrega pendientes. Las demás líneas de la venta no se modifican.
@@ -114,7 +109,8 @@ esos datos necesitan resolverse antes de instalar el módulo independiente.
 ## Pruebas
 
 GitHub Actions instala y actualiza con `odoo:19.0` y PostgreSQL 16. La suite incluye
-pruebas de salida de cortes sin doble descuento, lotes, conversiones de unidad,
+pruebas del ejemplo 5 → 7/3/2, creación y reutilización de lotes, cortes y sobrantes,
+compatibilidad con reversiones históricas, conversiones de unidad,
 ventas, cancelación/reconfirmación, rollback por faltantes, bloqueo por facturas,
 permisos y formulario/menú/reporte PDF. Ejecutar localmente en una base de pruebas:
 

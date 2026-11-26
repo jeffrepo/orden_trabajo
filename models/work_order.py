@@ -80,11 +80,10 @@ class OrdenTrabajo(models.Model):
                 raise UserError(_('Configure un largo positivo en el lote %s.', line.lote_id.display_name))
             if line.total <= 0 or float_compare(line.total, line.lote_id.largo, precision_digits=6) > 0:
                 raise UserError(_('La suma de los cortes debe ser positiva y no superar el largo del panel.'))
-            if not self._uses_length_uom(product):
-                if not self._uses_piece_uom(product):
-                    raise UserError(_('El producto %s debe medirse en metros o unidades de panel.', product.display_name))
-                if self.env['decimal.precision'].precision_get('Product Unit') < 6:
-                    raise UserError(_('Para rebajar fracciones de panel, configure al menos 6 decimales en la precisión «Product Unit».'))
+            if not self._uses_length_uom(product) and not self._uses_piece_uom(product):
+                raise UserError(_('El producto %s debe medirse en metros o unidades de panel.', product.display_name))
+            if not product.with_company(self.company_id).property_stock_production:
+                raise UserError(_('Configure la ubicación de producción del producto.'))
         for line in self.moldura_panel_ids:
             if line.cantidad <= 0:
                 raise UserError(_('Las cantidades de molduras deben ser positivas.'))
@@ -183,8 +182,8 @@ class OrdenTrabajo(models.Model):
             unit.with_context(lang=None).name.strip().casefold() in ('m', 'metro', 'metros')
         )
 
-    def _cut_product_quantity(self, product, pieces, length, source_length):
-        """Convert a panel count and its length in metres to the product UoM."""
+    def _panel_product_quantity(self, product, pieces, length):
+        """Convert whole panels/pieces, or their metres, to the product UoM."""
         unit = product.uom_id
         metre = self.env.ref('uom.product_uom_meter')
         if self._has_metre_reference(unit):
@@ -192,29 +191,10 @@ class OrdenTrabajo(models.Model):
         # Older databases may have their own standalone metre unit named M.
         if unit.with_context(lang=None).name.strip().casefold() in ('m', 'metro', 'metros'):
             return pieces * length
-        fraction = pieces * length / source_length
         piece_unit = self.env.ref('uom.product_uom_unit')
         if self._has_uom_reference(unit, piece_unit):
-            return piece_unit._compute_quantity(fraction, unit, round=False)
-        return fraction
-
-    def _cut_quantities(self, line):
-        """Round cumulative consumption so a fully used panel totals exactly one."""
-        total_length = previous_quantity = 0.0
-        for i in range(1, 7):
-            length = float_round(line[f'corte{i}'], precision_digits=6)
-            if not length:
-                continue
-            total_length += length
-            cumulative_quantity = float_round(self._cut_product_quantity(
-                line.product_id, line.product_qty, total_length, line.lote_id.largo,
-            ), precision_rounding=line.product_id.uom_id.rounding)
-            quantity = float_round(cumulative_quantity - previous_quantity,
-                                   precision_rounding=line.product_id.uom_id.rounding)
-            if quantity <= 0:
-                raise UserError(_('El corte del lote %s es demasiado pequeño para la precisión de inventario.', line.lote_id.display_name))
-            yield length, quantity, line.product_qty * length
-            previous_quantity = cumulative_quantity
+            return piece_unit._compute_quantity(pieces, unit, round=False)
+        return pieces
 
     def _sale_line_values(self, product, quantity, length=None):
         values = {
@@ -237,31 +217,44 @@ class OrdenTrabajo(models.Model):
                 order = order.with_company(order.company_id)
                 order._validate_confirmation()
                 super(OrdenTrabajo, order).write({'confirmation_number': order.confirmation_number + 1})
-                sale_cuts = defaultdict(float)
-                consumption, sale_keys, metres = [], [], []
+                outputs, sale_cuts = defaultdict(float), defaultdict(float)
+                consumption, consumption_metres = defaultdict(list), defaultdict(list)
                 warehouse_stock = order.sale_id.warehouse_id.lot_stock_id
                 for line in order.corte_ids:
-                    for length, quantity, cut_metres in order._cut_quantities(line):
-                        key = (line.product_id, length)
-                        consumption.append((line.lote_id, quantity, False))
-                        sale_keys.append(key)
-                        metres.append(cut_metres)
-                        sale_cuts[key] += quantity
-                sale_values = [order._sale_line_values(product, qty, length)
+                    production = line.product_id.with_company(order.company_id).property_stock_production
+                    quantity = order._panel_product_quantity(line.product_id, line.product_qty, line.lote_id.largo)
+                    consumption[production].append((line.lote_id, quantity, False))
+                    consumption_metres[production].append(line.product_qty * line.lote_id.largo)
+                    for i in range(1, 7):
+                        length = float_round(line[f'corte{i}'], precision_digits=6)
+                        if length:
+                            outputs[line.product_id, length] += line.product_qty
+                            sale_cuts[line.product_id, length] += line.product_qty
+                    remainder = float_round(line.sobra, precision_digits=6)
+                    if remainder > 0:
+                        outputs[line.product_id, remainder] += line.product_qty
+                for production, entries in consumption.items():
+                    order._make_transfer(warehouse_stock, production, entries, 'consumption',
+                                         metres=consumption_metres[production])
+                production_entries, production_metres = defaultdict(list), defaultdict(list)
+                for (product, length), pieces in outputs.items():
+                    lot = order._get_output_lot(product, length)
+                    production = product.with_company(order.company_id).property_stock_production
+                    quantity = order._panel_product_quantity(product, pieces, length)
+                    production_entries[production].append((lot, quantity, False))
+                    production_metres[production].append(pieces * length)
+                for production, entries in production_entries.items():
+                    order._make_transfer(production, warehouse_stock, entries, 'production',
+                                         metres=production_metres[production])
+                # Only requested cuts are sold; leftovers remain available in stock.
+                sale_values = [order._sale_line_values(product, order._panel_product_quantity(product, qty, length), length)
                                for (product, length), qty in sale_cuts.items()]
                 for line in order.moldura_panel_ids:
                     sale_values.append(order._sale_line_values(line.product_id, line.cantidad))
                 for line in order.tornilleria_accesorio_ids:
                     sale_values.append(order._sale_line_values(line.product_id, line.cantidad))
-                # Link direct cut deliveries before sales can procure the same quantity again.
-                sale_lines = self.env['sale.order.line'].with_context(skip_procurement=True).create(sale_values)
-                cut_lines = dict(zip(sale_cuts, sale_lines))
-                if consumption:
-                    order._make_transfer(
-                        warehouse_stock, order.sale_id.partner_shipping_id.property_stock_customer,
-                        consumption, 'consumption', sale_lines=[cut_lines[key] for key in sale_keys], metres=metres,
-                    )
-                sale_lines.with_context(skip_procurement=False)._action_launch_stock_rule()
+                if sale_values:
+                    self.env['sale.order.line'].create(sale_values)
                 super(OrdenTrabajo, order).write({'state': 'confirm'})
         return True
 
